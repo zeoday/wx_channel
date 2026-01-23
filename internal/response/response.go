@@ -1,0 +1,71 @@
+package response
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// Response 统一 API 响应结构
+type Response struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// PagedData 分页数据包装
+type PagedData struct {
+	Items      interface{} `json:"items"`
+	Total      int         `json:"total"`
+	Page       int         `json:"page"`
+	PageSize   int         `json:"page_size"`
+	TotalPages int         `json:"total_pages"`
+}
+
+// Success 返回成功响应
+func Success(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(Response{
+		Code:    0,
+		Message: "success",
+		Data:    data,
+	})
+}
+
+// SuccessPaged 返回分页成功响应
+func SuccessPaged(w http.ResponseWriter, items interface{}, total, page, pageSize int) {
+	totalPages := (total + pageSize - 1) / pageSize
+	Success(w, PagedData{
+		Items:      items,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	})
+}
+
+// Error 返回错误响应
+func Error(w http.ResponseWriter, code int, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	httpStatus := http.StatusBadRequest
+	if code >= 500 {
+		httpStatus = http.StatusInternalServerError
+	}
+	w.WriteHeader(httpStatus)
+	json.NewEncoder(w).Encode(Response{
+		Code:    code,
+		Message: message,
+		Data:    nil,
+	})
+}
+
+// ErrorWithStatus 返回带 HTTP 状态码的错误响应
+func ErrorWithStatus(w http.ResponseWriter, httpStatus int, code int, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(httpStatus)
+	json.NewEncoder(w).Encode(Response{
+		Code:    code,
+		Message: message,
+		Data:    nil,
+	})
+}

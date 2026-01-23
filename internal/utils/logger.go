@@ -29,10 +29,11 @@ var (
 
 // Logger 封装 zerolog
 type Logger struct {
-	mu       sync.Mutex
-	zLogger  zerolog.Logger
-	file     *os.File
-	minLevel LogLevel
+	mu         sync.Mutex
+	zLogger    zerolog.Logger
+	fileLogger zerolog.Logger
+	file       *os.File
+	minLevel   LogLevel
 }
 
 // InitLoggerWithRotation 初始化带日志轮转的日志系统
@@ -77,13 +78,14 @@ func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error
 	// 让我们用 zerolog 的 ConsoleWriter 但去除颜色写入文件，这样格式好看。
 
 	// fileOutput := zerolog.ConsoleWriter{Out: file, TimeFormat: "2006-01-02 15:04:05", NoColor: true}
-	// Using plain JSON for file output for better machine readability and standard practice
-	// But to match previous behavior (plain text), let's use ConsoleWriter with NoColor
+	// 为了更好的机器可读性和标准实践，文件输出应使用普通 JSON
+	// 但为了匹配之前的行为（纯文本），让我们使用不带颜色的 ConsoleWriter
 	fileOutput := zerolog.ConsoleWriter{Out: file, TimeFormat: "2006-01-02 15:04:05", NoColor: true}
 
 	multi := zerolog.MultiLevelWriter(consoleWriter, fileOutput)
 
 	zLog := zerolog.New(multi).With().Timestamp().Logger()
+	fLog := zerolog.New(fileOutput).With().Timestamp().Logger()
 
 	// 设置级别
 	var zLevel zerolog.Level
@@ -102,9 +104,10 @@ func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error
 	zerolog.SetGlobalLevel(zLevel)
 
 	defaultLogger = &Logger{
-		file:     file,
-		zLogger:  zLog,
-		minLevel: level,
+		file:       file,
+		zLogger:    zLog,
+		fileLogger: fLog,
+		minLevel:   level,
 	}
 
 	// 同时替换全局 log，以防甚至第三方库用 log.Print
@@ -484,4 +487,14 @@ func LogCleanup(operation string, itemsRemoved int, success bool) {
 		Int("removed", itemsRemoved).
 		Str("status", status).
 		Msgf("清理完成 %s", status)
+}
+
+// FileInfo 仅记录到文件的信息日志
+func (l *Logger) FileInfo(format string, args ...interface{}) {
+	l.fileLogger.Info().Msgf(format, args...)
+}
+
+// LogFileInfo 仅记录到文件的信息日志(全局)
+func LogFileInfo(format string, args ...interface{}) {
+	GetLogger().FileInfo(format, args...)
 }

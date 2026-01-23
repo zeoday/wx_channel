@@ -7,17 +7,17 @@ import (
 	"time"
 )
 
-// BrowseHistoryRepository handles browse history database operations
+// BrowseHistoryRepository 处理浏览历史数据库操作
 type BrowseHistoryRepository struct {
 	db *sql.DB
 }
 
-// NewBrowseHistoryRepository creates a new BrowseHistoryRepository
+// NewBrowseHistoryRepository 创建一个新的 BrowseHistoryRepository
 func NewBrowseHistoryRepository() *BrowseHistoryRepository {
 	return &BrowseHistoryRepository{db: GetDB()}
 }
 
-// Create inserts a new browse record
+// Create 插入新的浏览记录
 func (r *BrowseHistoryRepository) Create(record *BrowseRecord) error {
 	now := time.Now()
 	record.CreatedAt = now
@@ -42,7 +42,7 @@ func (r *BrowseHistoryRepository) Create(record *BrowseRecord) error {
 	return nil
 }
 
-// GetByID retrieves a browse record by ID
+// GetByID 根据 ID 获取浏览记录
 func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 	query := `
 		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
@@ -67,7 +67,7 @@ func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 	return record, nil
 }
 
-// Update updates an existing browse record
+// Update 更新现有的浏览记录
 func (r *BrowseHistoryRepository) Update(record *BrowseRecord) error {
 	record.UpdatedAt = time.Now()
 
@@ -94,7 +94,7 @@ func (r *BrowseHistoryRepository) Update(record *BrowseRecord) error {
 	return nil
 }
 
-// Delete removes a browse record by ID
+// Delete 根据 ID 删除浏览记录
 func (r *BrowseHistoryRepository) Delete(id string) error {
 	query := "DELETE FROM browse_history WHERE id = ?"
 	result, err := r.db.Exec(query, id)
@@ -108,7 +108,7 @@ func (r *BrowseHistoryRepository) Delete(id string) error {
 	return nil
 }
 
-// DeleteMany removes multiple browse records by IDs
+// DeleteMany 根据 ID 删除多条浏览记录
 func (r *BrowseHistoryRepository) DeleteMany(ids []string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
@@ -129,7 +129,7 @@ func (r *BrowseHistoryRepository) DeleteMany(ids []string) (int64, error) {
 	return result.RowsAffected()
 }
 
-// Clear removes all browse records
+// Clear 删除所有浏览记录
 func (r *BrowseHistoryRepository) Clear() error {
 	_, err := r.db.Exec("DELETE FROM browse_history")
 	if err != nil {
@@ -138,7 +138,7 @@ func (r *BrowseHistoryRepository) Clear() error {
 	return nil
 }
 
-// List retrieves browse records with pagination and sorting
+// List 获取分页和排序的浏览记录
 func (r *BrowseHistoryRepository) List(params *PaginationParams) (*PagedResult[BrowseRecord], error) {
 	// Set defaults
 	if params.Page < 1 {
@@ -215,7 +215,7 @@ func (r *BrowseHistoryRepository) List(params *PaginationParams) (*PagedResult[B
 	return NewPagedResult(records, total, params.Page, params.PageSize), nil
 }
 
-// Search searches browse records by title or author
+// Search 根据标题或作者搜索浏览记录
 func (r *BrowseHistoryRepository) Search(query string, params *PaginationParams) (*PagedResult[BrowseRecord], error) {
 	// Set defaults
 	if params.Page < 1 {
@@ -281,7 +281,7 @@ func (r *BrowseHistoryRepository) Search(query string, params *PaginationParams)
 	return NewPagedResult(records, total, params.Page, params.PageSize), nil
 }
 
-// Count returns the total number of browse records
+// Count 返回浏览记录的总数
 func (r *BrowseHistoryRepository) Count() (int64, error) {
 	var count int64
 	err := r.db.QueryRow("SELECT COUNT(*) FROM browse_history").Scan(&count)
@@ -291,7 +291,7 @@ func (r *BrowseHistoryRepository) Count() (int64, error) {
 	return count, nil
 }
 
-// GetRecent retrieves the most recent browse records
+// GetRecent 获取最近的浏览记录
 func (r *BrowseHistoryRepository) GetRecent(limit int) ([]BrowseRecord, error) {
 	if limit < 1 {
 		limit = 5
@@ -335,7 +335,7 @@ func (r *BrowseHistoryRepository) GetRecent(limit int) ([]BrowseRecord, error) {
 	return records, nil
 }
 
-// DeleteBefore deletes all records before the specified date
+// DeleteBefore 删除指定日期前的所有记录
 func (r *BrowseHistoryRepository) DeleteBefore(date time.Time) (int64, error) {
 	result, err := r.db.Exec("DELETE FROM browse_history WHERE browse_time < ?", date)
 	if err != nil {
@@ -344,7 +344,7 @@ func (r *BrowseHistoryRepository) DeleteBefore(date time.Time) (int64, error) {
 	return result.RowsAffected()
 }
 
-// GetAll retrieves all browse records (for export)
+// GetAll 获取所有浏览记录（用于导出）
 func (r *BrowseHistoryRepository) GetAll() ([]BrowseRecord, error) {
 	query := `
 		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
@@ -383,7 +383,7 @@ func (r *BrowseHistoryRepository) GetAll() ([]BrowseRecord, error) {
 	return records, nil
 }
 
-// GetByIDs retrieves browse records by IDs
+// GetByIDs 根据 ID 获取浏览记录
 func (r *BrowseHistoryRepository) GetByIDs(ids []string) ([]BrowseRecord, error) {
 	if len(ids) == 0 {
 		return []BrowseRecord{}, nil

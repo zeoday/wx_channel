@@ -4,14 +4,14 @@ import (
 	"fmt"
 )
 
-// Migration represents a database migration
+// Migration 表示数据库迁移
 type Migration struct {
 	Version     int
 	Description string
 	Up          string
 }
 
-// migrations contains all database migrations in order
+// migrations 按顺序包含所有数据库迁移
 var migrations = []Migration{
 	{
 		Version:     1,
@@ -218,11 +218,22 @@ CREATE INDEX IF NOT EXISTS idx_browse_history_title ON browse_history(title);
 CREATE INDEX IF NOT EXISTS idx_browse_history_author ON browse_history(author);
 `,
 	},
+	{
+		Version:     8,
+		Description: "Add social stats columns to download_records table",
+		Up: `
+-- Add social stats columns to download_records table
+ALTER TABLE download_records ADD COLUMN like_count INTEGER DEFAULT 0;
+ALTER TABLE download_records ADD COLUMN comment_count INTEGER DEFAULT 0;
+ALTER TABLE download_records ADD COLUMN forward_count INTEGER DEFAULT 0;
+ALTER TABLE download_records ADD COLUMN fav_count INTEGER DEFAULT 0;
+`,
+	},
 }
 
-// runMigrations executes all pending migrations
+// runMigrations 执行所有待处理的迁移
 func runMigrations() error {
-	// Create migrations table if not exists
+	// 如果不存在则创建迁移表
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
@@ -233,37 +244,37 @@ func runMigrations() error {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
-	// Get current version
+	// 获取当前版本
 	var currentVersion int
 	err = db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&currentVersion)
 	if err != nil {
 		return fmt.Errorf("failed to get current schema version: %w", err)
 	}
 
-	// Run pending migrations
+	// 运行待处理的迁移
 	for _, m := range migrations {
 		if m.Version > currentVersion {
-			// Begin transaction
+			// 开启事务
 			tx, err := db.Begin()
 			if err != nil {
 				return fmt.Errorf("failed to begin transaction for migration %d: %w", m.Version, err)
 			}
 
-			// Execute migration
+			// 执行迁移
 			_, err = tx.Exec(m.Up)
 			if err != nil {
 				tx.Rollback()
 				return fmt.Errorf("failed to execute migration %d (%s): %w", m.Version, m.Description, err)
 			}
 
-			// Record migration
+			// 记录迁移
 			_, err = tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", m.Version)
 			if err != nil {
 				tx.Rollback()
 				return fmt.Errorf("failed to record migration %d: %w", m.Version, err)
 			}
 
-			// Commit transaction
+			// 提交事务
 			if err := tx.Commit(); err != nil {
 				return fmt.Errorf("failed to commit migration %d: %w", m.Version, err)
 			}
@@ -275,7 +286,7 @@ func runMigrations() error {
 	return nil
 }
 
-// GetSchemaVersion returns the current schema version
+// GetSchemaVersion 返回当前架构版本
 func GetSchemaVersion() (int, error) {
 	var version int
 	err := db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&version)

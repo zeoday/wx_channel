@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,16 +24,22 @@ import (
 
 // APIHandler API请求处理器
 type APIHandler struct {
+	cfg        *config.Config
 	currentURL string
 }
 
 // NewAPIHandler 创建API处理器
 func NewAPIHandler(cfg *config.Config) *APIHandler {
-	return &APIHandler{}
+	return &APIHandler{
+		cfg: cfg,
+	}
 }
 
-// getConfig 获取当前配置（动态获取最新配置）
+// getConfig 获取当前配置
 func (h *APIHandler) getConfig() *config.Config {
+	if h.cfg != nil {
+		return h.cfg
+	}
 	return config.Get()
 }
 
@@ -44,6 +53,207 @@ func (h *APIHandler) GetCurrentURL() string {
 	return h.currentURL
 }
 
+// Handle implements router.Interceptor
+func (h *APIHandler) Handle(Conn *SunnyNet.HttpConn) bool {
+	// CORS Preflight for all __wx_channels_api requests
+	if Conn.Request == nil || Conn.Request.URL == nil {
+		return false
+	}
+
+	// Add local panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			utils.Error("APIHandler.Handle panic: %v", r)
+		}
+	}()
+
+	if strings.HasPrefix(Conn.Request.URL.Path, "/__wx_channels_api/") && Conn.Request.Method == "OPTIONS" {
+		h.handleCORS(Conn)
+		return true
+	}
+
+	if h.HandleProfile(Conn) {
+		return true
+	}
+	if h.HandleTip(Conn) {
+		return true
+	}
+	if h.HandlePageURL(Conn) {
+		// HandlePageURL updates state alongside returning true
+		h.SetCurrentURL(h.currentURL)
+		return true
+	}
+	if h.HandleSavePageContent(Conn) {
+		return true
+	}
+	return false
+}
+
+// handleCORS 处理CORS预检请求
+func (h *APIHandler) handleCORS(Conn *SunnyNet.HttpConn) {
+	headers := http.Header{}
+	headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		for _, o := range h.getConfig().AllowedOrigins {
+			if o == origin {
+				headers.Set("Access-Control-Allow-Origin", origin)
+				headers.Set("Vary", "Origin")
+				break
+			}
+		}
+	}
+	Conn.StopRequest(204, "", headers)
+}
+
+// HandleSavePageContent 处理页面内容保存请求
+func (h *APIHandler) HandleSavePageContent(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/save_page_content" {
+		return false
+	}
+
+	var contentData struct {
+		URL       string `json:"url"`
+		HTML      string `json:"html"`
+		Timestamp int64  `json:"timestamp"`
+	}
+	body, err := io.ReadAll(Conn.Request.Body)
+	if err != nil {
+		utils.HandleError(err, "读取save_page_content请求体")
+		return true
+	}
+	if err := Conn.Request.Body.Close(); err != nil {
+		utils.HandleError(err, "关闭请求体")
+	}
+	err = json.Unmarshal(body, &contentData)
+	if err != nil {
+		utils.HandleError(err, "解析页面内容数据")
+	} else {
+		parsedURL, err := url.Parse(contentData.URL)
+		if err != nil {
+			utils.HandleError(err, "解析页面内容URL")
+		} else {
+			h.saveDynamicHTML(contentData.HTML, parsedURL, contentData.URL, contentData.Timestamp)
+		}
+	}
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/json")
+	headers.Set("__debug", "fake_resp")
+	Conn.StopRequest(200, "{}", headers)
+	return true
+}
+
+// saveDynamicHTML 保存动态页面的完整HTML内容
+func (h *APIHandler) saveDynamicHTML(htmlContent string, parsedURL *url.URL, fullURL string, timestamp int64) {
+	cfg := h.getConfig()
+	if cfg == nil {
+		utils.Warn("配置未初始化，无法保存页面内容: %s", fullURL)
+		return
+	}
+	if !cfg.SavePageSnapshot {
+		return
+	}
+	if htmlContent == "" || parsedURL == nil {
+		return
+	}
+
+	if cfg.SaveDelay > 0 {
+		time.Sleep(cfg.SaveDelay)
+	}
+
+	saveTime := time.Now()
+	if timestamp > 0 {
+		saveTime = time.Unix(0, timestamp*int64(time.Millisecond))
+	}
+
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
+	if err != nil {
+		utils.HandleError(err, "解析下载目录用于保存页面内容")
+		return
+	}
+
+	if err := utils.EnsureDir(downloadsDir); err != nil {
+		utils.HandleError(err, "创建下载目录用于保存页面内容")
+		return
+	}
+
+	pagesRoot := filepath.Join(downloadsDir, "page_snapshots")
+	if err := utils.EnsureDir(pagesRoot); err != nil {
+		utils.HandleError(err, "创建页面保存根目录")
+		return
+	}
+
+	dateDir := filepath.Join(pagesRoot, saveTime.Format("2006-01-02"))
+	if err := utils.EnsureDir(dateDir); err != nil {
+		utils.HandleError(err, "创建页面保存日期目录")
+		return
+	}
+
+	var filenameParts []string
+	if parsedURL.Path != "" && parsedURL.Path != "/" {
+		segments := strings.Split(parsedURL.Path, "/")
+		for _, segment := range segments {
+			segment = strings.TrimSpace(segment)
+			if segment == "" || segment == "." {
+				continue
+			}
+			filenameParts = append(filenameParts, utils.CleanFilename(segment))
+		}
+	}
+
+	if parsedURL.RawQuery != "" {
+		querySegment := strings.ReplaceAll(parsedURL.RawQuery, "&", "_")
+		querySegment = strings.ReplaceAll(querySegment, "=", "-")
+		querySegment = utils.CleanFilename(querySegment)
+		if querySegment != "" {
+			filenameParts = append(filenameParts, querySegment)
+		}
+	}
+
+	if len(filenameParts) == 0 {
+		filenameParts = append(filenameParts, "page")
+	}
+
+	baseName := strings.Join(filenameParts, "_")
+	fileName := fmt.Sprintf("%s_%s.html", saveTime.Format("150405"), baseName)
+	targetPath := utils.GenerateUniqueFilename(dateDir, fileName, 100)
+
+	if err := os.WriteFile(targetPath, []byte(htmlContent), 0644); err != nil {
+		utils.HandleError(err, "保存页面HTML内容")
+		return
+	}
+
+	metaData := map[string]interface{}{
+		"url":       fullURL,
+		"host":      parsedURL.Host,
+		"path":      parsedURL.Path,
+		"query":     parsedURL.RawQuery,
+		"saved_at":  saveTime.Format(time.RFC3339),
+		"timestamp": timestamp,
+	}
+
+	metaBytes, err := json.MarshalIndent(metaData, "", "  ")
+	if err == nil {
+		metaPath := strings.TrimSuffix(targetPath, filepath.Ext(targetPath)) + ".meta.json"
+		if err := os.WriteFile(metaPath, metaBytes, 0644); err != nil {
+			utils.HandleError(err, "保存页面元数据")
+		}
+	}
+
+	utils.LogInfo("[页面快照] 已保存: %s", targetPath)
+
+	utils.PrintSeparator()
+	color.Blue("💾 页面快照已保存")
+	utils.PrintSeparator()
+	utils.PrintLabelValue("📁", "保存路径", targetPath)
+	utils.PrintLabelValue("🔗", "页面链接", fullURL)
+	utils.PrintSeparator()
+	fmt.Println()
+	fmt.Println()
+}
+
 // HandleProfile 处理视频信息请求
 func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
@@ -52,35 +262,35 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	}
 	utils.LogInfo("[Profile API] 收到视频信息请求")
 
-    // 授权与来源校验（可选）
-    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.getConfig().AllowedOrigins {
-                if o == origin {
-                    allowed = true
-                    break
-                }
-            }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	// 授权与来源校验（可选）
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	var data map[string]interface{}
 	body, err := io.ReadAll(Conn.Request.Body)
@@ -114,7 +324,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	// 打印提醒
 	utils.Info("💡 [提醒] 视频已成功播放")
 	utils.Info("💡 [提醒] 可以在「更多」菜单中下载视频啦！")
-	
+
 	// 记录视频信息到日志文件
 	videoID := ""
 	if id, ok := data["id"].(string); ok {
@@ -142,7 +352,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	if u, ok := data["url"].(string); ok {
 		url = u
 	}
-	
+
 	// 提取其他字段用于数据库保存
 	var duration int64 = 0
 	if d, ok := data["duration"].(float64); ok {
@@ -177,7 +387,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 		// 数字类型的key，转换为字符串
 		decryptKey = fmt.Sprintf("%.0f", k)
 	}
-	
+
 	// 提取分辨率信息：优先从media直接获取宽x高格式
 	resolution := ""
 	// 前端发送的media是单个对象，不是数组
@@ -205,15 +415,15 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	if resolution == "" {
 		utils.LogInfo("[分辨率] 未能获取分辨率信息")
 	}
-	
+
 	pageUrl := h.currentURL
-	
+
 	utils.LogInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s | Key=%s | 分辨率=%s",
 		videoID, title, author, sizeMB, url, decryptKey, resolution)
-	
+
 	// 保存浏览记录到数据库
 	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, likeCount, commentCount, favCount, forwardCount, pageUrl)
-	
+
 	color.Yellow("\n")
 
 	// 打印视频详细信息
@@ -305,12 +515,12 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 		utils.Warn("数据库未初始化，无法保存浏览记录")
 		return
 	}
-	
+
 	// 如果没有视频ID，生成一个
 	if videoID == "" {
 		videoID = fmt.Sprintf("browse_%d", time.Now().UnixNano())
 	}
-	
+
 	// 创建浏览记录
 	record := &database.BrowseRecord{
 		ID:           videoID,
@@ -330,17 +540,17 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 		ForwardCount: forwardCount,
 		PageURL:      pageUrl,
 	}
-	
+
 	// 保存到数据库
 	repo := database.NewBrowseHistoryRepository()
-	
+
 	// 先检查是否已存在该记录
 	existing, err := repo.GetByID(videoID)
 	if err != nil {
 		utils.Warn("检查浏览记录失败: %v", err)
 		return
 	}
-	
+
 	if existing != nil {
 		// 更新现有记录
 		record.CreatedAt = existing.CreatedAt
@@ -375,34 +585,34 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.getConfig().AllowedOrigins {
-                if o == origin {
-                    allowed = true
-                    break
-                }
-            }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	var data struct {
 		Msg string `json:"msg"`
@@ -435,7 +645,7 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	utils.PrintLabelValue("💡", "[提醒]", data.Msg)
-	
+
 	// 记录关键操作到日志文件
 	msg := data.Msg
 	if strings.Contains(msg, "下载封面") {
@@ -449,7 +659,7 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 		// 提取文件名，判断是否为不同格式
 		filename := strings.TrimPrefix(msg, "下载文件名<")
 		filename = strings.TrimSuffix(filename, ">")
-		
+
 		// 检查是否包含格式标识（如 xWT111_1280x720）
 		if strings.Contains(filename, "xWT") || strings.Contains(filename, "_") {
 			parts := strings.Split(filename, "_")
@@ -550,7 +760,7 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 			}
 		}
 	}
-	
+
 	h.sendEmptyResponse(Conn)
 	return true
 }
@@ -562,34 +772,34 @@ func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.getConfig().AllowedOrigins {
-                if o == origin {
-                    allowed = true
-                    break
-                }
-            }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	var urlData struct {
 		URL string `json:"url"`
@@ -653,24 +863,30 @@ func HandleStaticFiles(Conn *SunnyNet.HttpConn, zipJS, fileSaverJS []byte) bool 
 
 // sendEmptyResponse 发送空JSON响应
 func (h *APIHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
+	if Conn == nil {
+		utils.Warn("sendEmptyResponse: Conn is nil")
+		return
+	}
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
-    headers.Set("X-Content-Type-Options", "nosniff")
-    // CORS
-    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            for _, o := range h.getConfig().AllowedOrigins {
-                if o == origin {
-                    headers.Set("Access-Control-Allow-Origin", origin)
-                    headers.Set("Vary", "Origin")
-                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-                    break
-                }
-            }
-        }
-    }
+	headers.Set("X-Content-Type-Options", "nosniff")
+	// CORS
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		if Conn.Request != nil && Conn.Request.Header != nil {
+			origin := Conn.Request.Header.Get("Origin")
+			if origin != "" {
+				for _, o := range h.getConfig().AllowedOrigins {
+					if o == origin {
+						headers.Set("Access-Control-Allow-Origin", origin)
+						headers.Set("Vary", "Origin")
+						headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+						headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+						break
+					}
+				}
+			}
+		}
+	}
 	headers.Set("__debug", "fake_resp")
 	Conn.StopRequest(200, "{}", headers)
 }
@@ -679,21 +895,21 @@ func (h *APIHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 func (h *APIHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
-    headers.Set("X-Content-Type-Options", "nosniff")
-    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            for _, o := range h.getConfig().AllowedOrigins {
-                if o == origin {
-                    headers.Set("Access-Control-Allow-Origin", origin)
-                    headers.Set("Vary", "Origin")
-                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-                    break
-                }
-            }
-        }
-    }
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
+	}
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
 	Conn.StopRequest(500, errorMsg, headers)
 }
@@ -767,13 +983,13 @@ func parseResolutionFromURL(url string) string {
 	// 常见模式: 1280x720, 1920x1080 等
 	patterns := []string{"1920x1080", "1280x720", "854x480", "640x360", "3840x2160", "2560x1440"}
 	heights := []int64{1080, 720, 480, 360, 2160, 1440}
-	
+
 	for i, pattern := range patterns {
 		if strings.Contains(url, pattern) {
 			return formatHeightToResolution(heights[i])
 		}
 	}
-	
+
 	return ""
 }
 

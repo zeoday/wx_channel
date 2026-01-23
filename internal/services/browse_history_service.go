@@ -6,20 +6,20 @@ import (
 	"wx_channel/internal/database"
 )
 
-// BrowseHistoryService handles browse history business logic
+// BrowseHistoryService 处理浏览历史业务逻辑
 type BrowseHistoryService struct {
 	repo *database.BrowseHistoryRepository
 }
 
-// NewBrowseHistoryService creates a new BrowseHistoryService
+// NewBrowseHistoryService 创建一个新的 BrowseHistoryService
 func NewBrowseHistoryService() *BrowseHistoryService {
 	return &BrowseHistoryService{
 		repo: database.NewBrowseHistoryRepository(),
 	}
 }
 
-// Search searches browse records by title or author with pagination
-// Requirements: 1.3 - search within 500ms by title or author
+// Search 按标题或作者搜索浏览记录（带分页）
+// Requirements: 1.3 - 在 500ms 内按标题或作者搜索
 func (s *BrowseHistoryService) Search(query string, params *database.PaginationParams) (*database.PagedResult[database.BrowseRecord], error) {
 	if params == nil {
 		params = &database.PaginationParams{
@@ -32,8 +32,8 @@ func (s *BrowseHistoryService) Search(query string, params *database.PaginationP
 	return s.repo.Search(query, params)
 }
 
-// List retrieves browse records with pagination
-// Requirements: 1.1, 1.4 - paginated list sorted by browse time
+// List 获取浏览记录（带分页）
+// Requirements: 1.1, 1.4 - 按浏览时间排序的分页列表
 func (s *BrowseHistoryService) List(params *database.PaginationParams) (*database.PagedResult[database.BrowseRecord], error) {
 	if params == nil {
 		params = &database.PaginationParams{
@@ -46,65 +46,64 @@ func (s *BrowseHistoryService) List(params *database.PaginationParams) (*databas
 	return s.repo.List(params)
 }
 
-// GetByID retrieves a single browse record by ID
+// GetByID 按 ID 获取单条浏览记录
 func (s *BrowseHistoryService) GetByID(id string) (*database.BrowseRecord, error) {
 	return s.repo.GetByID(id)
 }
 
-
-// Clear removes all browse records
-// Requirements: 5.1, 5.2 - clear all browse history with confirmation
+// Clear 清空所有浏览记录
+// Requirements: 5.1, 5.2 - 清空所有浏览历史（需确认）
 func (s *BrowseHistoryService) Clear() error {
 	return s.repo.Clear()
 }
 
-// Delete removes a single browse record by ID
-// Requirements: 5.4 - selective deletion
+// Delete 按 ID 删除单条浏览记录
+// Requirements: 5.4 - 选择性删除
 func (s *BrowseHistoryService) Delete(id string) error {
 	return s.repo.Delete(id)
 }
 
-// DeleteMany removes multiple browse records by IDs
-// Requirements: 5.4 - selective deletion of selected records
+// DeleteMany 按 ID 批量删除浏览记录
+// Requirements: 5.4 - 选择性删除选中记录
 func (s *BrowseHistoryService) DeleteMany(ids []string) (int64, error) {
 	return s.repo.DeleteMany(ids)
 }
 
-// DeleteBefore removes all records before the specified date
-// Requirements: 5.5 - date-based cleanup
+// DeleteBefore 删除指定日期前的所有记录
+// Requirements: 5.5 - 基于日期的清理
 func (s *BrowseHistoryService) DeleteBefore(date time.Time) (int64, error) {
 	return s.repo.DeleteBefore(date)
 }
 
-// Count returns the total number of browse records
+// Count 返回浏览记录总数
 func (s *BrowseHistoryService) Count() (int64, error) {
 	return s.repo.Count()
 }
 
-// GetRecent retrieves the most recent browse records
-// Requirements: 7.3 - recent 5 videos on dashboard
+// GetRecent 获取最近的浏览记录
+// Requirements: 7.3 - 仪表盘上的最近 5 个视频
 func (s *BrowseHistoryService) GetRecent(limit int) ([]database.BrowseRecord, error) {
 	return s.repo.GetRecent(limit)
 }
 
-// GetAll retrieves all browse records (for export)
-// Requirements: 4.1 - export browse history
+// GetAll 获取所有浏览记录（用于导出）
+// Requirements: 4.1 - 导出浏览历史
 func (s *BrowseHistoryService) GetAll() ([]database.BrowseRecord, error) {
 	return s.repo.GetAll()
 }
 
-// GetByIDs retrieves browse records by IDs (for selective export)
-// Requirements: 9.4 - export selected records
+// GetByIDs 按 ID 获取浏览记录（用于选择性导出）
+// Requirements: 9.4 - 导出选中记录
 func (s *BrowseHistoryService) GetByIDs(ids []string) ([]database.BrowseRecord, error) {
 	return s.repo.GetByIDs(ids)
 }
 
-// Create adds a new browse record
+// Create 添加新的浏览记录
 func (s *BrowseHistoryService) Create(record *database.BrowseRecord) error {
 	return s.repo.Create(record)
 }
 
-// Update updates an existing browse record
+// Update 更新现有的浏览记录
 func (s *BrowseHistoryService) Update(record *database.BrowseRecord) error {
 	return s.repo.Update(record)
 }

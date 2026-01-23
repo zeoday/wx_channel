@@ -47,11 +47,11 @@ async function __wx_channels_decrypt(seed) {
 
 var WXU = (() => {
   var defaultRandomAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  
+
   // API 对象
   var WXAPI = {};
   var WXAPI2 = {};
-  
+
   // 监听 APILoaded 事件，保存 API 函数
   WXE.onAPILoaded((variables) => {
     console.log('[WXU] APILoaded 事件触发，变量:', variables);
@@ -75,7 +75,7 @@ var WXU = (() => {
       })();
     }
   });
-  
+
   function __wx_uid__() { return random_string(12); }
   function random_string(length) { return random_string_with_alphabet(length, defaultRandomAlphabet); }
   function random_string_with_alphabet(length, alphabet) {
@@ -152,7 +152,7 @@ var WXU = (() => {
         // videoPlayLen 单位是秒，需要转换为毫秒
         duration = media.videoPlayLen * 1000;
       }
-      
+
       return {
         ...feed,
         type: "media",
@@ -293,7 +293,7 @@ var WXU = (() => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ msg: "📹 " + (profile.nickname || "未知作者") + " - " + (profile.title || "").substring(0, 30) + "..." })
-      }).catch(function() {});
+      }).catch(function () { });
     },
     check_feed_existing(opt) {
       opt = opt || {};
@@ -313,13 +313,13 @@ var WXU = (() => {
       var search = parts[1];
       var queries = decodeURIComponent(search)
         .split("&")
-        .map(function(item) {
+        .map(function (item) {
           var kv = item.split("=");
           var obj = {};
           obj[kv[0]] = kv[1];
           return obj;
         })
-        .reduce(function(prev, cur) {
+        .reduce(function (prev, cur) {
           for (var k in cur) {
             prev[k] = cur[k];
           }
@@ -334,10 +334,10 @@ var WXU = (() => {
         cb($existing);
         return;
       }
-      var observer = new MutationObserver(function(mutations, obs) {
-        mutations.forEach(function(mutation) {
+      var observer = new MutationObserver(function (mutations, obs) {
+        mutations.forEach(function (mutation) {
           if (mutation.type === "childList") {
-            mutation.addedNodes.forEach(function(node) {
+            mutation.addedNodes.forEach(function (node) {
               if (node.nodeType === 1) {
                 if (node.matches && node.matches(selector)) {
                   cb(node);
@@ -355,7 +355,7 @@ var WXU = (() => {
         });
       });
       // 等待页面加载后开始观察
-      var startObserve = function() {
+      var startObserve = function () {
         var app = document.getElementById("app") || document.body;
         observer.observe(app, {
           childList: true,
@@ -376,7 +376,7 @@ var WXU = (() => {
       $toast.innerText = msg;
       $toast.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-size:14px;";
       document.body.appendChild($toast);
-      setTimeout(function() {
+      setTimeout(function () {
         $toast.remove();
       }, duration);
     },

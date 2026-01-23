@@ -1,0 +1,109 @@
+package router
+
+import (
+	"net/http"
+	"time"
+
+	"wx_channel/internal/response"
+	"wx_channel/internal/utils"
+)
+
+// 重新导出 response 包的函数，保持向后兼容
+var (
+	Success         = response.Success
+	SuccessPaged    = response.SuccessPaged
+	Error           = response.Error
+	ErrorWithStatus = response.ErrorWithStatus
+)
+
+// Response 类型别名
+type Response = response.Response
+type PagedData = response.PagedData
+
+// LoggerMiddleware 日志中间件
+func LoggerMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// 包装 ResponseWriter 以捕获状态码
+		wrapped := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+		next.ServeHTTP(wrapped, r)
+
+		duration := time.Since(start)
+		utils.GetLogger().Info(
+			"API 请求: %s %s [%d] %s from %s",
+			r.Method,
+			r.URL.Path,
+			wrapped.statusCode,
+			duration.String(),
+			r.RemoteAddr,
+		)
+	})
+}
+
+// statusResponseWriter 包装 ResponseWriter 以捕获状态码
+type statusResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *statusResponseWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// CORSMiddleware 跨域中间件
+func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+
+			// 检查 origin 是否在允许列表中
+			allowed := false
+			for _, o := range allowedOrigins {
+				if o == "*" || o == origin {
+					allowed = true
+					break
+				}
+			}
+
+			if allowed && origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Local-Auth")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+			}
+
+			// 处理预检请求
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RecoveryMiddleware 异常恢复中间件
+func RecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.GetLogger().Error("Panic recovered: %v, path: %s", err, r.URL.Path)
+				response.ErrorWithStatus(w, http.StatusInternalServerError, 500, "Internal Server Error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Chain 将多个中间件链接起来
+func Chain(handler http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
+	}
+	return handler
+}

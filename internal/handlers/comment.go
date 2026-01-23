@@ -29,6 +29,12 @@ func (h *CommentHandler) getConfig() *config.Config {
 	return config.Get()
 }
 
+// Handle implements router.Interceptor
+func (h *CommentHandler) Handle(Conn *SunnyNet.HttpConn) bool {
+
+	return h.HandleSaveCommentData(Conn)
+}
+
 // HandleSaveCommentData 处理保存评论数据请求
 func (h *CommentHandler) HandleSaveCommentData(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
@@ -152,13 +158,13 @@ func (h *CommentHandler) saveCommentData(comments []map[string]interface{}, vide
 		// 清理标题作为文件名
 		cleanTitle := utils.CleanFilename(videoTitle)
 		// CleanFilename 已经处理了长度限制（100字符），这里不需要再次限制
-		fileName = fmt.Sprintf("%s_%s_%s.json", 
-			saveTime.Format("150405"), 
-			videoID, 
+		fileName = fmt.Sprintf("%s_%s_%s.json",
+			saveTime.Format("150405"),
+			videoID,
 			cleanTitle)
 	} else {
-		fileName = fmt.Sprintf("%s_%s_video_%s.json", 
-			saveTime.Format("150405"), 
+		fileName = fmt.Sprintf("%s_%s_video_%s.json",
+			saveTime.Format("150405"),
 			videoID,
 			saveTime.Format("20060102_150405"))
 	}
@@ -206,7 +212,7 @@ func (h *CommentHandler) saveCommentData(comments []map[string]interface{}, vide
 		utils.Info("评论数据已保存: %s (%d条评论) -> %s", videoTitle, totalComments, relativePath)
 		utils.LogInfo("[评论保存] 标题=%s | 采集=%d | 路径=%s", videoTitle, totalComments, relativePath)
 	}
-	
+
 	// 记录详细评论采集日志
 	utils.LogComment(videoID, videoTitle, totalComments, true)
 

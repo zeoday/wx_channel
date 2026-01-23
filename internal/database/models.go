@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// BrowseRecord represents a video browse history record
+// BrowseRecord 表示视频浏览历史记录
 type BrowseRecord struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
@@ -12,10 +12,10 @@ type BrowseRecord struct {
 	AuthorID     string    `json:"authorId"`
 	Duration     int64     `json:"duration"`
 	Size         int64     `json:"size"`
-	Resolution   string    `json:"resolution"`   // Video resolution (e.g., "1080p")
+	Resolution   string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
 	CoverURL     string    `json:"coverUrl"`
 	VideoURL     string    `json:"videoUrl"`
-	DecryptKey   string    `json:"decryptKey"`   // Decrypt key for encrypted videos
+	DecryptKey   string    `json:"decryptKey"` // 加密视频的解密密钥
 	BrowseTime   time.Time `json:"browseTime"`
 	LikeCount    int64     `json:"likeCount"`
 	CommentCount int64     `json:"commentCount"`
@@ -26,13 +26,13 @@ type BrowseRecord struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// DownloadRecord represents a video download record
+// DownloadRecord 表示视频下载记录
 type DownloadRecord struct {
 	ID           string    `json:"id"`
 	VideoID      string    `json:"videoId"`
 	Title        string    `json:"title"`
 	Author       string    `json:"author"`
-	CoverURL     string    `json:"coverUrl"`     // Cover image URL
+	CoverURL     string    `json:"coverUrl"` // 封面图片 URL
 	Duration     int64     `json:"duration"`
 	FileSize     int64     `json:"fileSize"`
 	FilePath     string    `json:"filePath"`
@@ -41,11 +41,15 @@ type DownloadRecord struct {
 	Status       string    `json:"status"` // pending, in_progress, completed, failed
 	DownloadTime time.Time `json:"downloadTime"`
 	ErrorMessage string    `json:"errorMessage"`
+	LikeCount    int64     `json:"likeCount"`
+	CommentCount int64     `json:"commentCount"`
+	ForwardCount int64     `json:"forwardCount"`
+	FavCount     int64     `json:"favCount"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// DownloadStatus constants
+// DownloadStatus 常量
 const (
 	DownloadStatusPending    = "pending"
 	DownloadStatusInProgress = "in_progress"
@@ -53,17 +57,17 @@ const (
 	DownloadStatusFailed     = "failed"
 )
 
-// QueueItem represents a download queue item
+// QueueItem 表示下载队列项目
 type QueueItem struct {
 	ID              string    `json:"id"`
 	VideoID         string    `json:"videoId"`
 	Title           string    `json:"title"`
 	Author          string    `json:"author"`
-	CoverURL        string    `json:"coverUrl"`        // Cover image URL
+	CoverURL        string    `json:"coverUrl"` // 封面图片 URL
 	VideoURL        string    `json:"videoUrl"`
-	DecryptKey      string    `json:"decryptKey"`      // Decrypt key for encrypted videos
-	Duration        int64     `json:"duration"`        // Video duration in seconds
-	Resolution      string    `json:"resolution"`      // Video resolution (e.g., "1080p")
+	DecryptKey      string    `json:"decryptKey"` // 加密视频的解密密钥
+	Duration        int64     `json:"duration"`   // 视频时长（秒）
+	Resolution      string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
 	TotalSize       int64     `json:"totalSize"`
 	DownloadedSize  int64     `json:"downloadedSize"`
 	Status          string    `json:"status"` // pending, downloading, paused, completed, failed
@@ -80,7 +84,7 @@ type QueueItem struct {
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
-// QueueStatus constants
+// QueueStatus 常量
 const (
 	QueueStatusPending     = "pending"
 	QueueStatusDownloading = "downloading"
@@ -89,7 +93,7 @@ const (
 	QueueStatusFailed      = "failed"
 )
 
-// Settings represents application settings
+// Settings 表示应用程序设置
 type Settings struct {
 	DownloadDir        string `json:"downloadDir"`
 	ChunkSize          int64  `json:"chunkSize"`
@@ -100,7 +104,7 @@ type Settings struct {
 	Theme              string `json:"theme"`
 }
 
-// DefaultSettings returns default settings
+// DefaultSettings 返回默认设置
 func DefaultSettings() *Settings {
 	return &Settings{
 		DownloadDir:        "downloads",
@@ -113,7 +117,7 @@ func DefaultSettings() *Settings {
 	}
 }
 
-// PaginationParams represents pagination parameters
+// PaginationParams 表示分页参数
 type PaginationParams struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"pageSize"`
@@ -121,7 +125,7 @@ type PaginationParams struct {
 	SortDesc bool   `json:"sortDesc"`
 }
 
-// FilterParams represents filter parameters for download records
+// FilterParams 表示下载记录的过滤参数
 type FilterParams struct {
 	PaginationParams
 	StartDate *time.Time `json:"startDate"`
@@ -130,7 +134,7 @@ type FilterParams struct {
 	Query     string     `json:"query"`
 }
 
-// PagedResult represents a paginated result
+// PagedResult 表示分页结果
 type PagedResult[T any] struct {
 	Items      []T   `json:"items"`
 	Total      int64 `json:"total"`
@@ -139,7 +143,7 @@ type PagedResult[T any] struct {
 	TotalPages int   `json:"totalPages"`
 }
 
-// NewPagedResult creates a new paged result
+// NewPagedResult 创建一个新的分页结果
 func NewPagedResult[T any](items []T, total int64, page, pageSize int) *PagedResult[T] {
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize > 0 {

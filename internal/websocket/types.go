@@ -10,6 +10,7 @@ const (
 	WSMessageTypeAPIResponse WSMessageType = "api_response"
 	WSMessageTypePing        WSMessageType = "ping"
 	WSMessageTypePong        WSMessageType = "pong"
+	WSMessageTypeCommand     WSMessageType = "cmd"
 )
 
 // WebSocket 消息

@@ -1,5 +1,5 @@
 package public
 
 func Free(interface{}) {
-	// Do nothing
+	// 不做任何事
 }

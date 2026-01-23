@@ -1,0 +1,598 @@
+package download // import "github.com/GopeedLab/gopeed/pkg/download"
+
+
+CONSTANTS
+
+const (
+	// task info bucket
+	bucketTask = "task"
+	// task download data bucket
+	bucketSave = "save"
+	// downloader config bucket
+	bucketConfig = "config"
+	// downloader extension bucket
+	bucketExtension = "extension"
+	// downloader extension storage bucket
+	bucketExtensionStorage = "extension_storage"
+)
+const (
+	EventKeyStart    = "start"
+	EventKeyPause    = "pause"
+	EventKeyProgress = "progress"
+	EventKeyError    = "error"
+	EventKeyDelete   = "delete"
+	EventKeyDone     = "done"
+	EventKeyFinally  = "finally"
+)
+const (
+	dbFile = "gopeed.db"
+)
+const (
+	webhookTimeout = 10 * time.Second
+)
+
+VARIABLES
+
+var (
+	ErrTaskNotFound        = errors.New("task not found")
+	ErrUnSupportedProtocol = errors.New("unsupported protocol")
+)
+var (
+	gitSuffix = ".git"
+
+	tempExtensionsDir   = ".extensions"
+	extensionsDir       = "extensions"
+	extensionIgnoreDirs = []string{gitSuffix, "node_modules"}
+
+	ErrExtensionNoManifest = fmt.Errorf("manifest.json not found")
+	ErrExtensionNotFound   = fmt.Errorf("extension not found")
+)
+var defaultDownloader = NewDownloader(nil)
+var memData = make(map[string]map[string]any)
+
+FUNCTIONS
+
+func calcSpeed(speedArr *[]int64, downloaded int64, usedTime float64) int64
+func changeValue(p any, v any)
+func doTrigger[T any](d *Downloader, event ActivationEvent, req *base.Request, ctx T, handler func(ext *Extension, gopeed *Instance, ctx T)) error
+func initTask(task *Task)
+func logPanic(logDir string)
+    redirect stderr to log file, when panic happened log it
+
+func parseSettings(settings []*Setting) map[string]any
+func tryParse(val any, settingType SettingType) any
+
+TYPES
+
+type ActivationEvent string
+
+const (
+	EventOnResolve ActivationEvent = "onResolve"
+	EventOnStart   ActivationEvent = "onStart"
+	EventOnError   ActivationEvent = "onError"
+	EventOnDone    ActivationEvent = "onDone"
+)
+type BoltStorage struct {
+	db   *bbolt.DB
+	path string
+}
+
+func NewBoltStorage(dir string) *BoltStorage
+
+func (b *BoltStorage) Clear() error
+
+func (b *BoltStorage) Close() error
+
+func (b *BoltStorage) Delete(bucket string, key string) error
+
+func (b *BoltStorage) Get(bucket string, key string, v any) (bool, error)
+
+func (b *BoltStorage) List(bucket string, v any) error
+
+func (b *BoltStorage) Pop(bucket string, key string, v any) error
+
+func (b *BoltStorage) Put(bucket string, key string, v any) error
+
+func (b *BoltStorage) Setup(buckets []string) error
+
+type ContextStorage struct {
+	storage  Storage
+	identity string
+}
+
+func (s *ContextStorage) Clear()
+
+func (s *ContextStorage) Get(key string) any
+
+func (s *ContextStorage) Keys() []string
+
+func (s *ContextStorage) Remove(key string)
+
+func (s *ContextStorage) Set(key string, value string)
+
+func (s *ContextStorage) getRawData() map[string]string
+
+type Downloader struct {
+	Logger          *logger.Logger
+	ExtensionLogger *logger.Logger
+
+	cfg          *DownloaderConfig
+	fetcherCache map[string]fetcher.Fetcher
+	storage      Storage
+	tasks        []*Task
+	waitTasks    []*Task
+	watchedTasks sync.Map
+	listener     Listener
+
+	lock               *sync.Mutex
+	fetcherMapLock     *sync.RWMutex
+	checkDuplicateLock *sync.Mutex
+	closed             atomic.Bool
+
+	extensions []*Extension
+}
+
+func NewDownloader(cfg *DownloaderConfig) *Downloader
+
+func (d *Downloader) Clear() error
+
+func (d *Downloader) Close() error
+
+func (d *Downloader) Continue(filter *TaskFilter) (err error)
+    Continue specific tasks, if continue tasks will exceed maxRunning, it needs
+    pause some running tasks before that
+
+func (d *Downloader) ContinueBatch(filter *TaskFilter) (err error)
+
+func (d *Downloader) Create(rrId string, opts *base.Options) (taskId string, err error)
+
+func (d *Downloader) CreateDirect(req *base.Request, opts *base.Options) (taskId string, err error)
+
+func (d *Downloader) CreateDirectBatch(req *base.CreateTaskBatch) (taskId []string, err error)
+
+func (d *Downloader) Delete(filter *TaskFilter, force bool) (err error)
+
+func (d *Downloader) DeleteExtension(identity string) error
+
+func (d *Downloader) ExtensionPath(ext *Extension) string
+
+func (d *Downloader) GetConfig() (*base.DownloaderStoreConfig, error)
+
+func (d *Downloader) GetExtension(identity string) (*Extension, error)
+
+func (d *Downloader) GetExtensions() []*Extension
+
+func (d *Downloader) GetTask(id string) *Task
+
+func (d *Downloader) GetTasks() []*Task
+
+func (d *Downloader) GetTasksByFilter(filter *TaskFilter) []*Task
+    GetTasksByFilter get tasks by filter, if filter is nil, return all tasks
+    return tasks and if match all tasks
+
+func (d *Downloader) InstallExtensionByFolder(path string, devMode bool) (*Extension, error)
+
+func (d *Downloader) InstallExtensionByGit(url string) (*Extension, error)
+
+func (d *Downloader) Listener(fn Listener)
+
+func (d *Downloader) Pause(filter *TaskFilter) (err error)
+
+func (d *Downloader) PutConfig(v *base.DownloaderStoreConfig) error
+
+func (d *Downloader) Resolve(req *base.Request) (rr *ResolveResult, err error)
+
+func (d *Downloader) SendTestWebhook() error
+    SendTestWebhook sends a test webhook with a simulated payload Returns error
+    if any webhook URL does not respond with HTTP 200
+
+func (d *Downloader) Setup() error
+
+func (d *Downloader) Stats(id string) (sr any, err error)
+
+func (d *Downloader) SwitchExtension(identity string, status bool) error
+
+func (d *Downloader) TestWebhookUrl(url string) error
+    TestWebhookUrl tests a single webhook URL with a simulated payload Returns
+    error if the URL does not respond with HTTP 200
+
+func (d *Downloader) UpdateExtensionSettings(identity string, settings map[string]any) error
+
+func (d *Downloader) UpgradeCheckExtension(identity string) (newVersion string, err error)
+    UpgradeCheckExtension Check if there is a new version for the extension.
+
+func (d *Downloader) UpgradeExtension(identity string) error
+
+func (d *Downloader) assignFetcherManager(task *Task) error
+
+func (d *Downloader) buildFetcher(url string) (fetcher.Fetcher, error)
+
+func (d *Downloader) continueAll() (err error)
+    continueAll continue all tasks but does not affect tasks already running
+
+func (d *Downloader) deleteAll(force bool) (err error)
+
+func (d *Downloader) doCreate(f fetcher.Fetcher, opts *base.Options) (taskId string, err error)
+
+func (d *Downloader) doDelete(task *Task, force bool) (err error)
+
+func (d *Downloader) doOnError(task *Task, err error)
+
+func (d *Downloader) doPause(task *Task) (err error)
+
+func (d *Downloader) doStart(task *Task) (err error)
+
+func (d *Downloader) emit(eventKey EventKey, task *Task, errs ...error)
+
+func (d *Downloader) fetchExtensionByGit(url string, handler func(tempExtPath string, devMode bool) (*Extension, error)) (*Extension, error)
+
+func (d *Downloader) getExtension(identity string) *Extension
+
+func (d *Downloader) getProtocolConfig(name string, v any) bool
+
+func (d *Downloader) getWebhookUrls() []string
+    getWebhookUrls extracts webhook URLs from config Supports both new webhook
+    config format and legacy extra field for backward compatibility
+
+func (d *Downloader) notifyRunning()
+
+func (d *Downloader) parseExtensionByPath(path string) (*Extension, error)
+
+func (d *Downloader) parseFm(url string) (fetcher.FetcherManager, error)
+
+func (d *Downloader) pauseAll() (err error)
+
+func (d *Downloader) remainRunningCount() int
+
+func (d *Downloader) restoreFetcher(task *Task) error
+
+func (d *Downloader) restoreTask(task *Task) error
+
+func (d *Downloader) saveTask(task *Task) error
+
+func (d *Downloader) sendWebhookToUrl(url string, data *WebhookData) (int, error)
+    sendWebhookToUrl sends webhook data to a single URL Returns the HTTP status
+    code and any error that occurred
+
+func (d *Downloader) sendWebhooks(urls []string, data *WebhookData)
+
+func (d *Downloader) setupFetcher(fm fetcher.FetcherManager, fetcher fetcher.Fetcher)
+
+func (d *Downloader) statusMut(task *Task, fn func() (bool, error)) (bool, error)
+
+func (d *Downloader) triggerOnDone(task *Task)
+
+func (d *Downloader) triggerOnError(task *Task, err error)
+
+func (d *Downloader) triggerOnResolve(req *base.Request) (res *base.Resource, err error)
+
+func (d *Downloader) triggerOnStart(task *Task)
+
+func (d *Downloader) triggerWebhooks(event WebhookEvent, task *Task, err error)
+    triggerWebhooks sends webhook notifications to all configured URLs
+
+func (d *Downloader) watch(task *Task)
+    wait task done
+
+type DownloaderConfig struct {
+	Controller    *controller.Controller
+	FetchManagers []fetcher.FetcherManager
+
+	RefreshInterval   int // RefreshInterval time duration to refresh task progress(ms)
+	Storage           Storage
+	StorageDir        string
+	WhiteDownloadDirs []string
+
+	ProductionMode bool
+
+	*base.DownloaderStoreConfig
+}
+
+func (cfg *DownloaderConfig) Init() *DownloaderConfig
+
+type Event struct {
+	Key  EventKey
+	Task *Task
+	Err  error
+}
+
+type EventKey string
+
+type Extension struct {
+	// Identity is global unique for an extension, it's a combination of author and name
+	Identity    string `json:"identity"`
+	Name        string `json:"name"`
+	Author      string `json:"author"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
+	// Version semantic version string, like: 1.0.0
+	Version string `json:"version"`
+	// Homepage homepage url
+	Homepage string `json:"homepage"`
+	// Repository git repository info
+	Repository *Repository `json:"repository"`
+	Scripts    []*Script   `json:"scripts"`
+	Settings   []*Setting  `json:"settings"`
+	// Disabled if true, this extension will be ignored
+	Disabled bool `json:"disabled"`
+
+	DevMode bool `json:"devMode"`
+	// DevPath is the local path of extension source code
+	DevPath string `json:"devPath"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (e *Extension) buildIdentity() string
+
+func (e *Extension) buildInstallUrl() string
+
+func (e *Extension) update(newExt *Extension) error
+
+func (e *Extension) validate() error
+
+type ExtensionInfo struct {
+	Identity string `json:"identity"`
+	Name     string `json:"name"`
+	Author   string `json:"author"`
+	Title    string `json:"title"`
+	Version  string `json:"version"`
+}
+
+func NewExtensionInfo(ext *Extension) *ExtensionInfo
+
+type ExtensionTask struct {
+	download *Downloader
+
+	*Task
+}
+    ExtensionTask is a wrapper of Task, it's used to interact with extension
+    scripts. Avoid extension scripts modifying task directly, use ExtensionTask
+    to encapsulate task, only some fields can be modified, such as request info.
+
+func NewExtensionTask(download *Downloader, task *Task) *ExtensionTask
+
+func (t *ExtensionTask) Continue() error
+
+func (t *ExtensionTask) Pause() error
+
+type Instance struct {
+	Events   InstanceEvents  `json:"events"`
+	Info     *ExtensionInfo  `json:"info"`
+	Logger   *InstanceLogger `json:"logger"`
+	Settings map[string]any  `json:"settings"`
+	Storage  *ContextStorage `json:"storage"`
+}
+    Instance inject to js context when extension script is activated
+
+type InstanceEvents map[ActivationEvent]goja.Callable
+
+func (h InstanceEvents) OnDone(fn goja.Callable)
+
+func (h InstanceEvents) OnError(fn goja.Callable)
+
+func (h InstanceEvents) OnResolve(fn goja.Callable)
+
+func (h InstanceEvents) OnStart(fn goja.Callable)
+
+func (h InstanceEvents) register(name ActivationEvent, fn goja.Callable)
+
+type InstanceLogger struct {
+	identity string
+	devMode  bool
+	logger   *logger.Logger
+}
+
+func newInstanceLogger(extension *Extension, logger *logger.Logger) *InstanceLogger
+
+func (l *InstanceLogger) Debug(msg ...goja.Value)
+
+func (l *InstanceLogger) Error(msg ...goja.Value)
+
+func (l *InstanceLogger) Info(msg ...goja.Value)
+
+func (l *InstanceLogger) Warn(msg ...goja.Value)
+
+func (l *InstanceLogger) append(msg ...goja.Value) string
+
+type Listener func(event *Event)
+
+type Match struct {
+	// Urls match expression, refer to https://developer.chrome.com/docs/extensions/mv3/match_patterns/
+	Urls []string `json:"urls"`
+	// Labels match request labels
+	Labels []string `json:"labels"`
+}
+
+type MemStorage struct {
+	lock *sync.RWMutex
+}
+
+func NewMemStorage() *MemStorage
+
+func (n *MemStorage) Clear() error
+
+func (n *MemStorage) Close() error
+
+func (n *MemStorage) Delete(bucket string, key string) error
+
+func (n *MemStorage) Get(bucket string, key string, v any) (bool, error)
+
+func (n *MemStorage) List(bucket string, v any) error
+
+func (n *MemStorage) Pop(bucket string, key string, v any) error
+
+func (n *MemStorage) Put(bucket string, key string, v any) error
+
+func (n *MemStorage) Setup(buckets []string) error
+
+type OnDoneContext struct {
+	Task *Task `json:"task"`
+}
+
+type OnErrorContext struct {
+	Task  *ExtensionTask `json:"task"`
+	Error error          `json:"error"`
+}
+
+type OnResolveContext struct {
+	Req *base.Request  `json:"req"`
+	Res *base.Resource `json:"res"`
+}
+
+type OnStartContext struct {
+	Task *ExtensionTask `json:"task"`
+}
+
+type Option struct {
+	Label string `json:"label"`
+	Value any    `json:"value"`
+}
+
+type Progress struct {
+	// Total download time(ns)
+	Used int64 `json:"used"`
+	// Download speed(bytes/s)
+	Speed int64 `json:"speed"`
+	// Downloaded size(bytes)
+	Downloaded int64 `json:"downloaded"`
+	// Uploaded speed(bytes/s)
+	UploadSpeed int64 `json:"uploadSpeed"`
+	// Uploaded size(bytes)
+	Uploaded int64 `json:"uploaded"`
+}
+
+type Repository struct {
+	Url       string `json:"url"`
+	Directory string `json:"directory"`
+}
+
+type ResolveResult struct {
+	ID  string         `json:"id"`
+	Res *base.Resource `json:"res"`
+}
+
+type Script struct {
+	// Event active event name
+	Event string `json:"event"`
+	// Match rules
+	Match *Match `json:"match"`
+	// Entry js script file path
+	Entry string `json:"entry"`
+}
+
+func (s *Script) match(event ActivationEvent, req *base.Request) bool
+
+type Setting struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+	// setting type
+	Type SettingType `json:"type"`
+	// setting value
+	Value any `json:"value"`
+	// Multiple bool      `json:"multiple"`
+	Options []*Option `json:"options"`
+}
+
+type SettingType string
+
+const (
+	SettingTypeString  SettingType = "string"
+	SettingTypeNumber  SettingType = "number"
+	SettingTypeBoolean SettingType = "boolean"
+)
+type Storage interface {
+	Setup(buckets []string) error
+	Put(bucket string, key string, v any) error
+	Get(bucket string, key string, v any) (bool, error)
+	List(bucket string, v any) error
+	Pop(bucket string, key string, v any) error
+	Delete(bucket string, key string) error
+
+	Close() error
+	Clear() error
+}
+
+type Task struct {
+	ID        string               `json:"id"`
+	Protocol  string               `json:"protocol"`
+	Meta      *fetcher.FetcherMeta `json:"meta"`
+	Status    base.Status          `json:"status"`
+	Uploading bool                 `json:"uploading"`
+	Progress  *Progress            `json:"progress"`
+	CreatedAt time.Time            `json:"createdAt"`
+	UpdatedAt time.Time            `json:"updatedAt"`
+
+	fetcherManager fetcher.FetcherManager
+	fetcher        fetcher.Fetcher
+	timer          *util.Timer
+	statusLock     *sync.Mutex
+	lock           *sync.Mutex
+	speedArr       []int64
+	uploadSpeedArr []int64
+}
+
+func NewTask() *Task
+
+func (t *Task) MarshalJSON() ([]byte, error)
+
+func (t *Task) Name() string
+    Name returns the display name of the task.
+
+func (t *Task) clone() *Task
+
+func (t *Task) updateSpeed(downloaded int64, usedTime float64) int64
+
+func (t *Task) updateStatus(status base.Status)
+
+func (t *Task) updateUploadSpeed(downloaded int64, usedTime float64) int64
+
+type TaskFilter struct {
+	IDs         []string
+	Statuses    []base.Status
+	NotStatuses []base.Status
+}
+
+func (f *TaskFilter) IsEmpty() bool
+
+type WebhookData struct {
+	Event   WebhookEvent    `json:"event"`
+	Time    int64           `json:"time"` // Unix timestamp in milliseconds
+	Payload *WebhookPayload `json:"payload"`
+}
+    WebhookData is the data sent to webhook URLs
+
+type WebhookEvent string
+    WebhookEvent represents the type of webhook event
+
+const (
+	WebhookEventDownloadDone  WebhookEvent = "DOWNLOAD_DONE"
+	WebhookEventDownloadError WebhookEvent = "DOWNLOAD_ERROR"
+)
+type WebhookPayload struct {
+	Task *Task `json:"task"`
+}
+    WebhookPayload contains the task data
+
+type boot struct {
+	url      string
+	extra    interface{}
+	listener Listener
+}
+
+func Boot() *boot
+
+func (b *boot) Create(opts *base.Options) (string, error)
+
+func (b *boot) Extra(extra interface{}) *boot
+
+func (b *boot) Listener(listener Listener) *boot
+
+func (b *boot) Resolve() (*ResolveResult, error)
+
+func (b *boot) URL(url string) *boot
+

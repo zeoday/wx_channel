@@ -11,7 +11,7 @@ func ArgsToMap(args []string) (m Map) {
 
 nextopt:
 	for i, s := range args {
-		// does s look like an option?
+		// s 看起来像是一个选项吗？
 		if len(s) > 1 && s[0] == '-' {
 			k := ""
 			v := ""
@@ -26,7 +26,7 @@ nextopt:
 				continue nextopt
 			}
 
-			for i := 1; i < len(k); i++ { // equals cannot be first
+			for i := 1; i < len(k); i++ { // 等号不能是第一个字符
 				if k[i] == '=' {
 					v = k[i+1:]
 					k = k[0:i]
@@ -34,11 +34,11 @@ nextopt:
 				}
 			}
 
-			// It must have a value, which might be the next arg, assuming the next arg isn't an option too.
+			// 它必须有一个值，该值可能是下一个参数（假设下一个参数不是选项）
 			remaining := args[i+1:]
 			if v == "" && len(remaining) > 0 && remaining[0][0] != '-' {
 				v = remaining[0]
-			} // value is the next arg
+			} // 值是下一个参数
 			m[k] = v
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"wx_channel/internal/database"
 )
 
-// CleanupResult contains the result of a cleanup operation
+// CleanupResult 包含清理操作的结果
 type CleanupResult struct {
 	BrowseRecordsDeleted   int64     `json:"browseRecordsDeleted"`
 	DownloadRecordsDeleted int64     `json:"downloadRecordsDeleted"`
@@ -18,7 +18,7 @@ type CleanupResult struct {
 	Errors                 []string  `json:"errors,omitempty"`
 }
 
-// CleanupService handles data cleanup operations
+// CleanupService 处理数据清理操作
 // Requirements: 5.1, 5.2, 5.3, 5.5, 11.5
 type CleanupService struct {
 	browseRepo   *database.BrowseHistoryRepository
@@ -26,7 +26,7 @@ type CleanupService struct {
 	settingsRepo *database.SettingsRepository
 }
 
-// NewCleanupService creates a new CleanupService
+// NewCleanupService 创建一个新的 CleanupService
 func NewCleanupService() *CleanupService {
 	return &CleanupService{
 		browseRepo:   database.NewBrowseHistoryRepository(),
@@ -35,16 +35,16 @@ func NewCleanupService() *CleanupService {
 	}
 }
 
-// ClearBrowseHistory clears all browse history records
-// Requirements: 5.1, 5.2 - clear all browse history with confirmation
+// ClearBrowseHistory 清空所有浏览历史记录
+// Requirements: 5.1, 5.2 - 清空所有浏览历史（需确认）
 func (s *CleanupService) ClearBrowseHistory() (*CleanupResult, error) {
-	// Get count before clearing
+	// 清空前获取计数
 	count, err := s.browseRepo.Count()
 	if err != nil {
 		return nil, fmt.Errorf("failed to count browse records: %w", err)
 	}
 
-	// Clear all records
+	// 清空所有记录
 	if err := s.browseRepo.Clear(); err != nil {
 		return nil, fmt.Errorf("failed to clear browse history: %w", err)
 	}
@@ -55,22 +55,21 @@ func (s *CleanupService) ClearBrowseHistory() (*CleanupResult, error) {
 	}, nil
 }
 
-
-// ClearDownloadRecords clears all download records with optional file deletion
-// Requirements: 5.3 - clear download records with option to delete files
+// ClearDownloadRecords 清空所有下载记录（可选删除文件）
+// Requirements: 5.3 - 清空下载记录（可选择删除文件）
 func (s *CleanupService) ClearDownloadRecords(deleteFiles bool) (*CleanupResult, error) {
 	result := &CleanupResult{
 		CleanupTime: time.Now(),
 		Errors:      []string{},
 	}
 
-	// Get all records before clearing (for file deletion)
+	// 清空前获取所有记录（用于删除文件）
 	records, err := s.downloadRepo.GetAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get download records: %w", err)
 	}
 
-	// Delete files if requested
+	// 如果请求则删除文件
 	if deleteFiles {
 		for _, record := range records {
 			if record.FilePath != "" {
@@ -87,7 +86,7 @@ func (s *CleanupService) ClearDownloadRecords(deleteFiles bool) (*CleanupResult,
 		}
 	}
 
-	// Clear all records
+	// 清空所有记录
 	if err := s.downloadRepo.Clear(); err != nil {
 		return nil, fmt.Errorf("failed to clear download records: %w", err)
 	}
@@ -96,8 +95,8 @@ func (s *CleanupService) ClearDownloadRecords(deleteFiles bool) (*CleanupResult,
 	return result, nil
 }
 
-// DeleteBrowseRecordsBefore deletes browse records before the specified date
-// Requirements: 5.5 - date-based cleanup
+// DeleteBrowseRecordsBefore 删除指定日期前的浏览记录
+// Requirements: 5.5 - 基于日期的清理
 func (s *CleanupService) DeleteBrowseRecordsBefore(date time.Time) (*CleanupResult, error) {
 	count, err := s.browseRepo.DeleteBefore(date)
 	if err != nil {
@@ -110,17 +109,17 @@ func (s *CleanupService) DeleteBrowseRecordsBefore(date time.Time) (*CleanupResu
 	}, nil
 }
 
-// DeleteDownloadRecordsBefore deletes download records before the specified date
-// Requirements: 5.5 - date-based cleanup
+// DeleteDownloadRecordsBefore 删除指定日期前的下载记录
+// Requirements: 5.5 - 基于日期的清理
 func (s *CleanupService) DeleteDownloadRecordsBefore(date time.Time, deleteFiles bool) (*CleanupResult, error) {
 	result := &CleanupResult{
 		CleanupTime: time.Now(),
 		Errors:      []string{},
 	}
 
-	// If we need to delete files, we need to get the records first
+	// 如果需要删除文件，我们需要先获取记录
 	if deleteFiles {
-		// Get all records and filter by date
+		// 获取所有记录并按日期过滤
 		records, err := s.downloadRepo.GetAll()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get download records: %w", err)
@@ -141,7 +140,7 @@ func (s *CleanupService) DeleteDownloadRecordsBefore(date time.Time, deleteFiles
 		}
 	}
 
-	// Delete records from database
+	// 从数据库删除记录
 	count, err := s.downloadRepo.DeleteBefore(date)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete download records before %v: %w", date, err)
@@ -151,26 +150,26 @@ func (s *CleanupService) DeleteDownloadRecordsBefore(date time.Time, deleteFiles
 	return result, nil
 }
 
-// RunAutoCleanup runs automatic cleanup based on settings
-// Requirements: 11.5 - auto cleanup based on settings
+// RunAutoCleanup 根据设置运行自动清理
+// Requirements: 11.5 - 基于设置的自动清理
 func (s *CleanupService) RunAutoCleanup() (*CleanupResult, error) {
-	// Load settings
+	// 加载设置
 	settings, err := s.settingsRepo.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
 
-	// Check if auto cleanup is enabled
+	// 检查自动清理是否启用
 	if !settings.AutoCleanupEnabled {
 		return &CleanupResult{
 			CleanupTime: time.Now(),
 		}, nil
 	}
 
-	// Calculate cutoff date
+	// 计算截止日期
 	cutoffDate := time.Now().AddDate(0, 0, -settings.AutoCleanupDays)
 
-	// Delete old browse records
+	// 删除旧的浏览记录
 	browseResult, err := s.DeleteBrowseRecordsBefore(cutoffDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to cleanup browse records: %w", err)
@@ -182,8 +181,8 @@ func (s *CleanupService) RunAutoCleanup() (*CleanupResult, error) {
 	}, nil
 }
 
-// DeleteSelectedBrowseRecords deletes specific browse records by IDs
-// Requirements: 5.4 - selective deletion
+// DeleteSelectedBrowseRecords 按 ID 删除特定的浏览记录
+// Requirements: 5.4 - 选择性删除
 func (s *CleanupService) DeleteSelectedBrowseRecords(ids []string) (*CleanupResult, error) {
 	count, err := s.browseRepo.DeleteMany(ids)
 	if err != nil {
@@ -196,15 +195,15 @@ func (s *CleanupService) DeleteSelectedBrowseRecords(ids []string) (*CleanupResu
 	}, nil
 }
 
-// DeleteSelectedDownloadRecords deletes specific download records by IDs
-// Requirements: 5.4 - selective deletion
+// DeleteSelectedDownloadRecords 按 ID 删除特定的下载记录
+// Requirements: 5.4 - 选择性删除
 func (s *CleanupService) DeleteSelectedDownloadRecords(ids []string, deleteFiles bool) (*CleanupResult, error) {
 	result := &CleanupResult{
 		CleanupTime: time.Now(),
 		Errors:      []string{},
 	}
 
-	// If we need to delete files, get the records first
+	// 如果需要删除文件，先获取记录
 	if deleteFiles {
 		records, err := s.downloadRepo.GetByIDs(ids)
 		if err != nil {
@@ -226,7 +225,7 @@ func (s *CleanupService) DeleteSelectedDownloadRecords(ids []string, deleteFiles
 		}
 	}
 
-	// Delete records from database
+	// 从数据库删除记录
 	count, err := s.downloadRepo.DeleteMany(ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete selected download records: %w", err)
@@ -236,22 +235,22 @@ func (s *CleanupService) DeleteSelectedDownloadRecords(ids []string, deleteFiles
 	return result, nil
 }
 
-// CleanupAll clears all data (browse and download records)
-// Requirements: 5.1, 5.2, 5.3 - comprehensive cleanup
+// CleanupAll 清空所有数据（浏览和下载记录）
+// Requirements: 5.1, 5.2, 5.3 - 全面清理
 func (s *CleanupService) CleanupAll(deleteFiles bool) (*CleanupResult, error) {
 	result := &CleanupResult{
 		CleanupTime: time.Now(),
 		Errors:      []string{},
 	}
 
-	// Clear browse history
+	// 清空浏览历史
 	browseResult, err := s.ClearBrowseHistory()
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear browse history: %w", err)
 	}
 	result.BrowseRecordsDeleted = browseResult.BrowseRecordsDeleted
 
-	// Clear download records
+	// 清空下载记录
 	downloadResult, err := s.ClearDownloadRecords(deleteFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear download records: %w", err)

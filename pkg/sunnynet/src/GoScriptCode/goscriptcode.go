@@ -1,3 +1,3 @@
 package GoScriptCode
 
-// Empty implementation
+// 空实现

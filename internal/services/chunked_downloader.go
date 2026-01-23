@@ -14,7 +14,7 @@ import (
 	"wx_channel/internal/utils"
 )
 
-// ChunkedDownloader handles large file downloads with chunking support
+// ChunkedDownloader 处理支持分片的大文件下载
 type ChunkedDownloader struct {
 	queueService *QueueService
 	settings     *database.SettingsRepository
@@ -30,18 +30,18 @@ type ChunkedDownloader struct {
 	maxRetries    int
 }
 
-// DownloadState tracks the state of an active download
+// DownloadState 跟踪活动下载的状态
 type DownloadState struct {
-	QueueItem       *database.QueueItem
-	CurrentChunk    int
-	ChunkProgress   int64 // bytes downloaded in current chunk
-	LastUpdateTime  time.Time
-	BytesPerSecond  int64
-	IsPaused        bool
-	CancelFunc      context.CancelFunc
+	QueueItem      *database.QueueItem
+	CurrentChunk   int
+	ChunkProgress  int64 // bytes downloaded in current chunk
+	LastUpdateTime time.Time
+	BytesPerSecond int64
+	IsPaused       bool
+	CancelFunc     context.CancelFunc
 }
 
-// ProgressUpdate represents a download progress update
+// ProgressUpdate 表示下载进度更新
 type ProgressUpdate struct {
 	QueueID         string `json:"queueId"`
 	DownloadedSize  int64  `json:"downloadedSize"`
@@ -53,12 +53,12 @@ type ProgressUpdate struct {
 	ErrorMessage    string `json:"errorMessage,omitempty"`
 }
 
-// NewChunkedDownloader creates a new ChunkedDownloader
+// NewChunkedDownloader 创建一个新的 ChunkedDownloader
 func NewChunkedDownloader(queueService *QueueService) *ChunkedDownloader {
 	ctx, cancel := context.WithCancel(context.Background())
 	settingsRepo := database.NewSettingsRepository()
 
-	// Load settings
+	// 加载设置
 	settings, err := settingsRepo.Load()
 	if err != nil {
 		settings = database.DefaultSettings()
@@ -78,23 +78,22 @@ func NewChunkedDownloader(queueService *QueueService) *ChunkedDownloader {
 	}
 }
 
-// ProgressChannel returns the channel for progress updates
+// ProgressChannel 返回进度更新通道
 func (d *ChunkedDownloader) ProgressChannel() <-chan ProgressUpdate {
 	return d.progressChan
 }
 
-
-// StartDownload starts downloading a queue item
+// StartDownload 开始下载队列项目
 func (d *ChunkedDownloader) StartDownload(item *database.QueueItem) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Check if already downloading
+	// 检查是否已在下载
 	if _, exists := d.activeItems[item.ID]; exists {
 		return fmt.Errorf("download already in progress for item: %s", item.ID)
 	}
 
-	// Create download context
+	// 创建下载上下文
 	ctx, cancel := context.WithCancel(d.ctx)
 
 	state := &DownloadState{
@@ -106,33 +105,33 @@ func (d *ChunkedDownloader) StartDownload(item *database.QueueItem) error {
 
 	d.activeItems[item.ID] = state
 
-	// Start download in goroutine
+	// 在 goroutine 中开始下载
 	go d.downloadItem(ctx, state)
 
 	return nil
 }
 
-// downloadItem performs the actual download
+// downloadItem 执行实际下载
 func (d *ChunkedDownloader) downloadItem(ctx context.Context, state *DownloadState) {
 	item := state.QueueItem
 
-	// Mark as downloading
+	// 标记为正在下载
 	if err := d.queueService.StartDownload(item.ID); err != nil {
 		d.handleError(item.ID, fmt.Errorf("failed to start download: %w", err))
 		return
 	}
 
-	// Prepare download directory
+	// 准备下载目录
 	downloadPath, err := d.prepareDownloadPath(item)
 	if err != nil {
 		d.handleError(item.ID, fmt.Errorf("failed to prepare download path: %w", err))
 		return
 	}
 
-	// Download chunks
+	// 下载分片
 	err = d.downloadChunks(ctx, state, downloadPath)
 	if err != nil {
-		// Check if it was cancelled/paused
+		// 检查是否被取消/暂停
 		if ctx.Err() != nil {
 			return
 		}
@@ -140,19 +139,19 @@ func (d *ChunkedDownloader) downloadItem(ctx context.Context, state *DownloadSta
 		return
 	}
 
-	// Verify file integrity
+	// 验证文件完整性
 	if err := d.verifyFileIntegrity(downloadPath, item.TotalSize); err != nil {
 		d.handleError(item.ID, fmt.Errorf("file integrity check failed: %w", err))
 		return
 	}
 
-	// Mark as completed
+	// 标记为完成
 	if err := d.queueService.CompleteDownload(item.ID); err != nil {
 		d.handleError(item.ID, fmt.Errorf("failed to mark download as completed: %w", err))
 		return
 	}
 
-	// Send completion update
+	// 发送完成更新
 	d.sendProgress(ProgressUpdate{
 		QueueID:         item.ID,
 		DownloadedSize:  item.TotalSize,
@@ -163,30 +162,30 @@ func (d *ChunkedDownloader) downloadItem(ctx context.Context, state *DownloadSta
 		Status:          database.QueueStatusCompleted,
 	})
 
-	// Remove from active items
+	// 从活动项目中移除
 	d.mu.Lock()
 	delete(d.activeItems, item.ID)
 	d.mu.Unlock()
 }
 
-// downloadChunks downloads all chunks for an item
+// downloadChunks 下载项目的所有分片
 func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadState, downloadPath string) error {
 	item := state.QueueItem
 	chunkSize := item.ChunkSize
 	totalChunks := item.ChunksTotal
 
-	// Open or create the file
+	// 打开或创建文件
 	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	// Resume from last completed chunk
+	// 从上一个完成的分片恢复
 	startChunk := state.CurrentChunk
 	startOffset := int64(startChunk) * chunkSize
 
-	// Seek to the correct position
+	// 跳转到正确位置
 	if _, err := file.Seek(startOffset, 0); err != nil {
 		return fmt.Errorf("failed to seek to position: %w", err)
 	}
@@ -202,7 +201,7 @@ func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadS
 		default:
 		}
 
-		// Check if paused
+		// 检查是否暂停
 		d.mu.RLock()
 		isPaused := state.IsPaused
 		d.mu.RUnlock()
@@ -210,20 +209,20 @@ func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadS
 			return nil
 		}
 
-		// Calculate chunk range
+		// 计算分片范围
 		chunkStart := int64(chunkIndex) * chunkSize
 		chunkEnd := chunkStart + chunkSize - 1
 		if chunkEnd >= item.TotalSize {
 			chunkEnd = item.TotalSize - 1
 		}
 
-		// Download chunk with retry
+		// 带重试下载分片
 		chunkBytes, err := d.downloadChunkWithRetry(ctx, item.VideoURL, chunkStart, chunkEnd)
 		if err != nil {
 			return fmt.Errorf("failed to download chunk %d: %w", chunkIndex, err)
 		}
 
-		// Write chunk to file
+		// 将分片写入文件
 		if _, err := file.Write(chunkBytes); err != nil {
 			return fmt.Errorf("failed to write chunk %d: %w", chunkIndex, err)
 		}
@@ -231,7 +230,7 @@ func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadS
 		downloadedSize += int64(len(chunkBytes))
 		state.CurrentChunk = chunkIndex + 1
 
-		// Calculate speed
+		// 计算速度
 		now := time.Now()
 		elapsed := now.Sub(lastSpeedCalcTime).Seconds()
 		if elapsed >= 1.0 {
@@ -241,12 +240,12 @@ func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadS
 			lastDownloadedSize = downloadedSize
 		}
 
-		// Update progress in database
+		// 更新数据库中的进度
 		if err := d.queueService.UpdateProgress(item.ID, downloadedSize, state.CurrentChunk, state.BytesPerSecond); err != nil {
 			utils.Warn("[ChunkedDownloader] Failed to update progress: %v", err)
 		}
 
-		// Send progress update
+		// 发送进度更新
 		d.sendProgress(ProgressUpdate{
 			QueueID:         item.ID,
 			DownloadedSize:  downloadedSize,
@@ -261,8 +260,7 @@ func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadS
 	return nil
 }
 
-
-// downloadChunkWithRetry downloads a single chunk with retry logic
+// downloadChunkWithRetry 带重试逻辑下载单个分片
 func (d *ChunkedDownloader) downloadChunkWithRetry(ctx context.Context, url string, start, end int64) ([]byte, error) {
 	var lastErr error
 
@@ -274,7 +272,7 @@ func (d *ChunkedDownloader) downloadChunkWithRetry(ctx context.Context, url stri
 		}
 
 		if attempt > 0 {
-			// Wait before retry with exponential backoff
+			// 重试前等待（指数退避）
 			waitTime := time.Duration(attempt) * time.Second
 			select {
 			case <-ctx.Done():
@@ -295,14 +293,14 @@ func (d *ChunkedDownloader) downloadChunkWithRetry(ctx context.Context, url stri
 	return nil, fmt.Errorf("chunk download failed after %d retries: %w", d.maxRetries+1, lastErr)
 }
 
-// downloadChunk downloads a single chunk using HTTP Range request
+// downloadChunk 使用 HTTP Range 请求下载单个分片
 func (d *ChunkedDownloader) downloadChunk(ctx context.Context, url string, start, end int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set Range header for partial content
+	// 设置部分内容的 Range 头
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
 	resp, err := d.client.Do(req)
@@ -311,7 +309,7 @@ func (d *ChunkedDownloader) downloadChunk(ctx context.Context, url string, start
 	}
 	defer resp.Body.Close()
 
-	// Accept both 200 (full content) and 206 (partial content)
+	// 接受 200 (完整内容) 和 206 (部分内容)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
@@ -324,14 +322,14 @@ func (d *ChunkedDownloader) downloadChunk(ctx context.Context, url string, start
 	return data, nil
 }
 
-// prepareDownloadPath prepares the download path for an item
+// prepareDownloadPath 准备项目的下载路径
 func (d *ChunkedDownloader) prepareDownloadPath(item *database.QueueItem) (string, error) {
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
 		return "", err
 	}
 
-	// Create author folder
+	// 创建作者文件夹
 	authorFolder := utils.CleanFolderName(item.Author)
 	downloadDir := filepath.Join(baseDir, d.downloadDir, authorFolder)
 
@@ -339,14 +337,14 @@ func (d *ChunkedDownloader) prepareDownloadPath(item *database.QueueItem) (strin
 		return "", fmt.Errorf("failed to create download directory: %w", err)
 	}
 
-	// Clean filename
+	// 清理文件名
 	filename := utils.CleanFilename(item.Title)
 	filename = utils.EnsureExtension(filename, ".mp4")
 
 	return filepath.Join(downloadDir, filename), nil
 }
 
-// verifyFileIntegrity verifies the downloaded file size matches expected size
+// verifyFileIntegrity 验证下载的文件大小是否与预期大小匹配
 func (d *ChunkedDownloader) verifyFileIntegrity(filePath string, expectedSize int64) error {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -361,43 +359,43 @@ func (d *ChunkedDownloader) verifyFileIntegrity(filePath string, expectedSize in
 	return nil
 }
 
-// handleError handles download errors
+// handleError 处理下载错误
 func (d *ChunkedDownloader) handleError(itemID string, err error) {
 	utils.Error("[ChunkedDownloader] Download error for %s: %v", itemID, err)
 
-	// Get item details for logging
+	// 获取项目详细信息以进行日志记录
 	if item, getErr := d.queueService.GetByID(itemID); getErr == nil && item != nil {
 		utils.LogDownloadError(item.ID, item.Title, item.Author, item.VideoURL, err, d.maxRetries)
 	}
-	
-	// Mark as failed
+
+	// 标记为失败
 	if markErr := d.queueService.FailDownload(itemID, err.Error()); markErr != nil {
 		utils.Error("[ChunkedDownloader] Failed to mark download as failed: %v", markErr)
 	}
 
-	// Send error update
+	// 发送错误更新
 	d.sendProgress(ProgressUpdate{
 		QueueID:      itemID,
 		Status:       database.QueueStatusFailed,
 		ErrorMessage: err.Error(),
 	})
 
-	// Remove from active items
+	// 从活动项目中移除
 	d.mu.Lock()
 	delete(d.activeItems, itemID)
 	d.mu.Unlock()
 }
 
-// sendProgress sends a progress update to the channel
+// sendProgress 发送进度更新到通道
 func (d *ChunkedDownloader) sendProgress(update ProgressUpdate) {
 	select {
 	case d.progressChan <- update:
 	default:
-		// Channel full, skip update
+		// 通道已满，跳过更新
 	}
 }
 
-// PauseDownload pauses an active download
+// PauseDownload 暂停活动下载
 func (d *ChunkedDownloader) PauseDownload(itemID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -410,7 +408,7 @@ func (d *ChunkedDownloader) PauseDownload(itemID string) error {
 	state.IsPaused = true
 	state.CancelFunc()
 
-	// Update status in database
+	// 更新数据库中的状态
 	if err := d.queueService.Pause(itemID); err != nil {
 		return err
 	}
@@ -419,9 +417,9 @@ func (d *ChunkedDownloader) PauseDownload(itemID string) error {
 	return nil
 }
 
-// ResumeDownload resumes a paused download
+// ResumeDownload 恢复暂停的下载
 func (d *ChunkedDownloader) ResumeDownload(itemID string) error {
-	// Get the item from queue
+	// 从队列获取项目
 	item, err := d.queueService.GetByID(itemID)
 	if err != nil {
 		return err
@@ -430,16 +428,16 @@ func (d *ChunkedDownloader) ResumeDownload(itemID string) error {
 		return fmt.Errorf("queue item not found: %s", itemID)
 	}
 
-	// Resume in queue service
+	// 在队列服务中恢复
 	if err := d.queueService.Resume(itemID); err != nil {
 		return err
 	}
 
-	// Start download
+	// 开始下载
 	return d.StartDownload(item)
 }
 
-// CancelDownload cancels an active download
+// CancelDownload 取消活动下载
 func (d *ChunkedDownloader) CancelDownload(itemID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -455,7 +453,7 @@ func (d *ChunkedDownloader) CancelDownload(itemID string) error {
 	return nil
 }
 
-// GetActiveDownloads returns the list of active download IDs
+// GetActiveDownloads 返回活动下载 ID 列表
 func (d *ChunkedDownloader) GetActiveDownloads() []string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -467,7 +465,7 @@ func (d *ChunkedDownloader) GetActiveDownloads() []string {
 	return ids
 }
 
-// GetDownloadState returns the state of an active download
+// GetDownloadState 返回活动下载的状态
 func (d *ChunkedDownloader) GetDownloadState(itemID string) (*DownloadState, bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -476,7 +474,7 @@ func (d *ChunkedDownloader) GetDownloadState(itemID string) (*DownloadState, boo
 	return state, exists
 }
 
-// Stop stops the downloader and cancels all active downloads
+// Stop 停止下载器并取消所有活动下载
 func (d *ChunkedDownloader) Stop() {
 	d.cancel()
 
@@ -491,14 +489,13 @@ func (d *ChunkedDownloader) Stop() {
 	close(d.progressChan)
 }
 
-// GetResumePosition calculates the byte position to resume from
-// Based on completed chunks: position = chunksCompleted * chunkSize
+// GetResumePosition 计算恢复的字节位置
+// 基于已完成的分片: 位置 = 已完成分片数 * 分片大小
 func GetResumePosition(chunksCompleted int, chunkSize int64) int64 {
 	return int64(chunksCompleted) * chunkSize
 }
 
-
-// ResumeInfo contains information needed to resume a download
+// ResumeInfo 包含恢复下载所需的信息
 type ResumeInfo struct {
 	QueueID         string `json:"queueId"`
 	ChunksCompleted int    `json:"chunksCompleted"`
@@ -509,7 +506,7 @@ type ResumeInfo struct {
 	ResumePosition  int64  `json:"resumePosition"`
 }
 
-// GetResumeInfo retrieves resume information for a paused download
+// GetResumeInfo 获取暂停下载的恢复信息
 func (d *ChunkedDownloader) GetResumeInfo(itemID string) (*ResumeInfo, error) {
 	item, err := d.queueService.GetByID(itemID)
 	if err != nil {
@@ -519,7 +516,7 @@ func (d *ChunkedDownloader) GetResumeInfo(itemID string) (*ResumeInfo, error) {
 		return nil, fmt.Errorf("queue item not found: %s", itemID)
 	}
 
-	// Can only get resume info for paused or failed items
+	// 只能获取暂停或失败项目的恢复信息
 	if item.Status != database.QueueStatusPaused && item.Status != database.QueueStatusFailed {
 		return nil, fmt.Errorf("item is not paused or failed, current status: %s", item.Status)
 	}
@@ -537,7 +534,7 @@ func (d *ChunkedDownloader) GetResumeInfo(itemID string) (*ResumeInfo, error) {
 	}, nil
 }
 
-// CanResume checks if a download can be resumed
+// CanResume 检查下载是否可以恢复
 func (d *ChunkedDownloader) CanResume(itemID string) (bool, error) {
 	item, err := d.queueService.GetByID(itemID)
 	if err != nil {
@@ -547,7 +544,7 @@ func (d *ChunkedDownloader) CanResume(itemID string) (bool, error) {
 		return false, nil
 	}
 
-	// Can resume paused or failed items that have partial progress
+	// 可以恢复有部分进度的暂停或失败项目
 	if item.Status == database.QueueStatusPaused || item.Status == database.QueueStatusFailed {
 		return item.ChunksCompleted > 0 && item.ChunksCompleted < item.ChunksTotal, nil
 	}
@@ -555,8 +552,8 @@ func (d *ChunkedDownloader) CanResume(itemID string) (bool, error) {
 	return false, nil
 }
 
-// SaveProgress explicitly saves the current progress to database
-// This is called periodically during download and when pausing
+// SaveProgress 显式保存当前进度到数据库
+// 这在下载期间和暂停时定期调用
 func (d *ChunkedDownloader) SaveProgress(itemID string) error {
 	d.mu.RLock()
 	state, exists := d.activeItems[itemID]
@@ -579,12 +576,12 @@ func (d *ChunkedDownloader) SaveProgress(itemID string) error {
 	)
 }
 
-// GetPausedDownloads returns all paused downloads that can be resumed
+// GetPausedDownloads 返回所有可恢复的暂停下载
 func (d *ChunkedDownloader) GetPausedDownloads() ([]database.QueueItem, error) {
 	return d.queueService.GetByStatus(database.QueueStatusPaused)
 }
 
-// ResumeAllPaused resumes all paused downloads
+// ResumeAllPaused 恢复所有暂停的下载
 func (d *ChunkedDownloader) ResumeAllPaused() error {
 	paused, err := d.GetPausedDownloads()
 	if err != nil {
@@ -601,8 +598,7 @@ func (d *ChunkedDownloader) ResumeAllPaused() error {
 	return nil
 }
 
-
-// FileIntegrityResult contains the result of a file integrity check
+// FileIntegrityResult 包含文件完整性检查的结果
 type FileIntegrityResult struct {
 	IsValid      bool   `json:"isValid"`
 	ExpectedSize int64  `json:"expectedSize"`
@@ -611,8 +607,8 @@ type FileIntegrityResult struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
-// VerifyDownloadedFile verifies the integrity of a downloaded file
-// This checks that the actual file size matches the expected size
+// VerifyDownloadedFile 验证下载文件的完整性
+// 这检查实际文件大小是否与预期大小匹配
 func (d *ChunkedDownloader) VerifyDownloadedFile(itemID string) (*FileIntegrityResult, error) {
 	item, err := d.queueService.GetByID(itemID)
 	if err != nil {
@@ -632,7 +628,7 @@ func (d *ChunkedDownloader) VerifyDownloadedFile(itemID string) (*FileIntegrityR
 		}, nil
 	}
 
-	// Check if file exists
+	// 检查文件是否存在
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -668,7 +664,7 @@ func (d *ChunkedDownloader) VerifyDownloadedFile(itemID string) (*FileIntegrityR
 	return result, nil
 }
 
-// VerifyFileSize is a standalone function to verify file size matches expected
+// VerifyFileSize 是一个独立函数，用于验证文件大小是否匹配预期
 func VerifyFileSize(filePath string, expectedSize int64) error {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -683,7 +679,7 @@ func VerifyFileSize(filePath string, expectedSize int64) error {
 	return nil
 }
 
-// VerifyAllCompletedDownloads verifies all completed downloads
+// VerifyAllCompletedDownloads 验证所有已完成的下载
 func (d *ChunkedDownloader) VerifyAllCompletedDownloads() ([]FileIntegrityResult, error) {
 	completed, err := d.queueService.GetByStatus(database.QueueStatusCompleted)
 	if err != nil {
@@ -707,16 +703,15 @@ func (d *ChunkedDownloader) VerifyAllCompletedDownloads() ([]FileIntegrityResult
 	return results, nil
 }
 
-
-// RetryConfig contains retry configuration
+// RetryConfig 包含重试配置
 type RetryConfig struct {
-	MaxRetries      int           `json:"maxRetries"`
-	InitialDelay    time.Duration `json:"initialDelay"`
-	MaxDelay        time.Duration `json:"maxDelay"`
-	BackoffFactor   float64       `json:"backoffFactor"`
+	MaxRetries    int           `json:"maxRetries"`
+	InitialDelay  time.Duration `json:"initialDelay"`
+	MaxDelay      time.Duration `json:"maxDelay"`
+	BackoffFactor float64       `json:"backoffFactor"`
 }
 
-// DefaultRetryConfig returns the default retry configuration
+// DefaultRetryConfig 返回默认重试配置
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
 		MaxRetries:    3,
@@ -726,15 +721,15 @@ func DefaultRetryConfig() *RetryConfig {
 	}
 }
 
-// RetryResult contains the result of a retry operation
+// RetryResult 包含重试操作的结果
 type RetryResult struct {
-	Success      bool   `json:"success"`
-	Attempts     int    `json:"attempts"`
-	LastError    string `json:"lastError,omitempty"`
-	TotalTime    int64  `json:"totalTimeMs"`
+	Success   bool   `json:"success"`
+	Attempts  int    `json:"attempts"`
+	LastError string `json:"lastError,omitempty"`
+	TotalTime int64  `json:"totalTimeMs"`
 }
 
-// downloadChunkWithRetryTracked downloads a chunk with retry and returns detailed result
+// downloadChunkWithRetryTracked 带重试下载分片并返回详细结果
 func (d *ChunkedDownloader) downloadChunkWithRetryTracked(ctx context.Context, url string, start, end int64, config *RetryConfig) ([]byte, *RetryResult) {
 	if config == nil {
 		config = DefaultRetryConfig()
@@ -770,7 +765,7 @@ func (d *ChunkedDownloader) downloadChunkWithRetryTracked(ctx context.Context, u
 			case <-time.After(delay):
 			}
 
-			// Calculate next delay with backoff
+			// 计算下一次退避延迟
 			delay = time.Duration(float64(delay) * config.BackoffFactor)
 			if delay > config.MaxDelay {
 				delay = config.MaxDelay
@@ -793,7 +788,7 @@ func (d *ChunkedDownloader) downloadChunkWithRetryTracked(ctx context.Context, u
 	return nil, result
 }
 
-// RetryFailedDownload retries a failed download from the beginning or last checkpoint
+// RetryFailedDownload 从头开始或上一个检查点重试失败的下载
 func (d *ChunkedDownloader) RetryFailedDownload(itemID string) error {
 	item, err := d.queueService.GetByID(itemID)
 	if err != nil {

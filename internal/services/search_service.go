@@ -4,8 +4,8 @@ import (
 	"wx_channel/internal/database"
 )
 
-// SearchResult represents global search results
-// Requirements: 12.2 - group results by source with counts
+// SearchResult 表示全局搜索结果
+// Requirements: 12.2 - 按来源分组并显示计数
 type SearchResult struct {
 	BrowseResults   []database.BrowseRecord   `json:"browseResults"`
 	DownloadResults []database.DownloadRecord `json:"downloadResults"`
@@ -14,13 +14,13 @@ type SearchResult struct {
 	TotalCount      int64                     `json:"totalCount"`
 }
 
-// SearchService handles global search business logic
+// SearchService 处理全局搜索业务逻辑
 type SearchService struct {
 	browseRepo   *database.BrowseHistoryRepository
 	downloadRepo *database.DownloadRecordRepository
 }
 
-// NewSearchService creates a new SearchService
+// NewSearchService 创建一个新的 SearchService
 func NewSearchService() *SearchService {
 	return &SearchService{
 		browseRepo:   database.NewBrowseHistoryRepository(),
@@ -28,9 +28,9 @@ func NewSearchService() *SearchService {
 	}
 }
 
-// Search performs a global search across browse and download records
-// Requirements: 12.1 - search both browse and download records
-// Requirements: 12.2 - group results by source with counts
+// Search 在浏览和下载记录中执行全局搜索
+// Requirements: 12.1 - 搜索浏览和下载记录
+// Requirements: 12.2 - 按来源分组并显示计数
 func (s *SearchService) Search(query string, limit int) (*SearchResult, error) {
 	if limit < 1 {
 		limit = 20
@@ -41,7 +41,7 @@ func (s *SearchService) Search(query string, limit int) (*SearchResult, error) {
 		DownloadResults: []database.DownloadRecord{},
 	}
 
-	// Search browse records
+	// 搜索浏览记录
 	browseParams := &database.PaginationParams{
 		Page:     1,
 		PageSize: limit,
@@ -55,8 +55,7 @@ func (s *SearchService) Search(query string, limit int) (*SearchResult, error) {
 	result.BrowseResults = browseResult.Items
 	result.BrowseCount = browseResult.Total
 
-
-	// Search download records
+	// 搜索下载记录
 	downloadParams := &database.FilterParams{
 		PaginationParams: database.PaginationParams{
 			Page:     1,
@@ -73,13 +72,13 @@ func (s *SearchService) Search(query string, limit int) (*SearchResult, error) {
 	result.DownloadResults = downloadResult.Items
 	result.DownloadCount = downloadResult.Total
 
-	// Calculate total count
+	// 计算总数
 	result.TotalCount = result.BrowseCount + result.DownloadCount
 
 	return result, nil
 }
 
-// SearchBrowse searches only browse records
+// SearchBrowse 仅搜索浏览记录
 func (s *SearchService) SearchBrowse(query string, params *database.PaginationParams) (*database.PagedResult[database.BrowseRecord], error) {
 	if params == nil {
 		params = &database.PaginationParams{
@@ -92,7 +91,7 @@ func (s *SearchService) SearchBrowse(query string, params *database.PaginationPa
 	return s.browseRepo.Search(query, params)
 }
 
-// SearchDownload searches only download records
+// SearchDownload 仅搜索下载记录
 func (s *SearchService) SearchDownload(query string, params *database.FilterParams) (*database.PagedResult[database.DownloadRecord], error) {
 	if params == nil {
 		params = &database.FilterParams{

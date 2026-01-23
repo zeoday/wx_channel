@@ -10,29 +10,31 @@ window.__wx_batch_download_manager__ = {
   selectedItems: {}, // 选中的项目 {id: true}
   currentPage: 1,
   pageSize: 50,
-  maxItems: 300,
+  maxItems: 100000, // Gopeed接管后取消限制 (原300)
   isVisible: false,
   title: '视频列表',
   isDownloading: false, // 是否正在下载
+  isDownloading: false, // 是否正在下载
   stopSignal: false, // 取消下载信号
   forceRedownload: false, // 强制重新下载
-  
+  abortController: null, // 当前请求的 AbortController
+
   // 设置视频数据
-  setVideos: function(videos, title) {
+  setVideos: function (videos, title) {
     this.videos = videos.slice(0, this.maxItems); // 限制最多300个
     this.selectedItems = {};
     this.currentPage = 1;
     if (title) this.title = title;
     console.log('[批量下载] 设置视频数据，共', this.videos.length, '个');
   },
-  
+
   // 追加视频数据（去重）
-  appendVideos: function(videos) {
+  appendVideos: function (videos) {
     var existingIds = {};
-    this.videos.forEach(function(v) {
+    this.videos.forEach(function (v) {
       existingIds[v.id] = true;
     });
-    
+
     var newCount = 0;
     for (var i = 0; i < videos.length && this.videos.length < this.maxItems; i++) {
       var video = videos[i];
@@ -42,42 +44,42 @@ window.__wx_batch_download_manager__ = {
         newCount++;
       }
     }
-    
+
     console.log('[批量下载] 追加', newCount, '个视频，总计:', this.videos.length);
     return newCount;
   },
-  
+
   // 获取当前页的视频
-  getCurrentPageVideos: function() {
+  getCurrentPageVideos: function () {
     var start = (this.currentPage - 1) * this.pageSize;
     var end = start + this.pageSize;
     return this.videos.slice(start, end);
   },
-  
+
   // 获取总页数
-  getTotalPages: function() {
+  getTotalPages: function () {
     return Math.ceil(this.videos.length / this.pageSize);
   },
-  
+
   // 获取选中的视频
-  getSelectedVideos: function() {
+  getSelectedVideos: function () {
     var self = this;
-    return this.videos.filter(function(video) {
+    return this.videos.filter(function (video) {
       return self.selectedItems[video.id];
     });
   },
-  
+
   // 切换选中状态
-  toggleSelect: function(videoId, selected) {
+  toggleSelect: function (videoId, selected) {
     if (selected) {
       this.selectedItems[videoId] = true;
     } else {
       delete this.selectedItems[videoId];
     }
   },
-  
+
   // 全选当前页
-  selectAllCurrentPage: function(selected) {
+  selectAllCurrentPage: function (selected) {
     var pageVideos = this.getCurrentPageVideos();
     for (var i = 0; i < pageVideos.length; i++) {
       this.toggleSelect(pageVideos[i].id, selected);
@@ -91,34 +93,34 @@ function __show_batch_download_ui__(videos, title) {
     __wx_log({ msg: '❌ 暂无视频数据' });
     return;
   }
-  
+
   // 设置数据
   __wx_batch_download_manager__.setVideos(videos, title || '视频列表');
-  
+
   // 移除已存在的弹窗
   var existingUI = document.getElementById('wx-batch-download-ui');
   if (existingUI) existingUI.remove();
-  
+
   // 创建弹窗
   var ui = document.createElement('div');
   ui.id = 'wx-batch-download-ui';
   ui.style.cssText = 'position:fixed;top:60px;right:20px;background:#2b2b2b;color:#e5e5e5;padding:0;border-radius:8px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:14px;width:450px;max-height:80vh;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;';
-  
+
   // 统计视频和直播数量
   var videoCount = 0;
   var liveCount = 0;
-  videos.forEach(function(v) {
+  videos.forEach(function (v) {
     if (v.type === 'live' || v.type === 'live_replay') {
       liveCount++;
     } else if (v.type === 'media' || !v.type) {
       videoCount++;
     }
   });
-  
+
   // 根据页面类型构建统计文本
   var statsText = '';
   var currentPath = window.location.pathname;
-  
+
   if (currentPath.includes('/pages/home')) {
     // Home页：显示"X 个视频"
     statsText = videoCount + ' 个视频';
@@ -147,153 +149,191 @@ function __show_batch_download_ui__(videos, title) {
       statsText = videos.length + ' 个';
     }
   }
-  
-  ui.innerHTML = 
+
+  ui.innerHTML =
     // 标题栏
     '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;">' +
-      '<div style="font-size:15px;font-weight:500;color:#fff;">' + __wx_batch_download_manager__.title + '</div>' +
-      '<div style="display:flex;align-items:center;gap:12px;">' +
-        '<div id="batch-total-count" style="font-size:13px;color:#999;">' + statsText + '</div>' +
-        '<div id="batch-close-icon" style="cursor:pointer;color:#999;font-size:20px;line-height:1;padding:4px;" title="关闭">×</div>' +
-      '</div>' +
+    '<div style="font-size:15px;font-weight:500;color:#fff;">' + __wx_batch_download_manager__.title + '</div>' +
+    '<div style="display:flex;align-items:center;gap:12px;">' +
+    '<div id="batch-total-count" style="font-size:13px;color:#999;">' + statsText + '</div>' +
+    '<div id="batch-close-icon" style="cursor:pointer;color:#999;font-size:20px;line-height:1;padding:4px;" title="关闭">×</div>' +
     '</div>' +
-    
+    '</div>' +
+
     // 列表区域
     '<div id="batch-list-container" style="overflow-y:auto;padding:12px 20px;max-height:200px;">' +
-      '<div id="batch-list" style="display:flex;flex-direction:column;gap:8px;"></div>' +
+    '<div id="batch-list" style="display:flex;flex-direction:column;gap:8px;"></div>' +
     '</div>' +
-    
+
     // 分页
     '<div id="batch-pagination" style="padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;">' +
-      '<div style="font-size:13px;color:#999;">第 <span id="batch-current-page">1</span> / <span id="batch-total-pages">1</span> 页</div>' +
-      '<div style="display:flex;gap:8px;">' +
-        '<button id="batch-prev-page" style="background:rgba(255,255,255,0.08);color:#999;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;">上一页</button>' +
-        '<button id="batch-next-page" style="background:rgba(255,255,255,0.08);color:#999;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;">下一页</button>' +
-      '</div>' +
+    '<div style="font-size:13px;color:#999;">第 <span id="batch-current-page">1</span> / <span id="batch-total-pages">1</span> 页</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button id="batch-prev-page" style="background:rgba(255,255,255,0.08);color:#999;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;">上一页</button>' +
+    '<button id="batch-next-page" style="background:rgba(255,255,255,0.08);color:#999;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;">下一页</button>' +
     '</div>' +
-    
+    '</div>' +
+
     // 操作区
     '<div style="padding:16px 20px;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
-        '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;">' +
-          '<input type="checkbox" id="batch-select-all" style="margin-right:8px;cursor:pointer;" />' +
-          '<span>全选当前页</span>' +
-        '</label>' +
-        '<span id="batch-selected-count" style="font-size:13px;color:#07c160;">已选 0 个</span>' +
-      '</div>' +
-      
-      // 下载和取消按钮容器
-      '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
-        '<button id="batch-download-btn" style="flex:1;background:#07c160;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:background 0.2s;">开始下载</button>' +
-        '<button id="batch-cancel-btn" style="flex:0 0 25%;background:#fa5151;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;display:none;">取消</button>' +
-      '</div>' +
-      
-      // 下载进度
-      '<div id="batch-download-progress" style="display:none;margin-bottom:12px;">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px;color:#999;">' +
-          '<span>下载进度</span>' +
-          '<span id="batch-progress-text">0/0</span>' +
-        '</div>' +
-        '<div style="background:rgba(255,255,255,0.08);height:6px;border-radius:3px;overflow:hidden;">' +
-          '<div id="batch-progress-bar" style="background:#07c160;height:100%;width:0%;border-radius:3px;transition:width 0.3s;"></div>' +
-        '</div>' +
-      '</div>' +
-      
-      // 强制重新下载选项
-      '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;">' +
-        '<input type="checkbox" id="batch-force-redownload" style="margin-right:8px;cursor:pointer;" />' +
-        '<span>强制重新下载</span>' +
-      '</label>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+    '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;">' +
+    '<input type="checkbox" id="batch-select-all" style="margin-right:8px;cursor:pointer;" />' +
+    '<span>全选当前页</span>' +
+    '</label>' +
+    '<span id="batch-selected-count" style="font-size:13px;color:#07c160;">已选 0 个</span>' +
     '</div>' +
-    
+
+    // 下载和取消按钮容器
+    '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+    '<button id="batch-download-btn" style="flex:1;background:#07c160;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:background 0.2s;">开始下载</button>' +
+    '<button id="batch-cancel-btn" style="flex:0 0 25%;background:#fa5151;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;display:none;">取消</button>' +
+    '</div>' +
+
+    // 下载进度
+    '<div id="batch-download-progress" style="display:none;margin-bottom:12px;">' +
+    '<div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px;color:#999;">' +
+    '<span>下载进度</span>' +
+    '<span id="batch-progress-text">0/0</span>' +
+    '</div>' +
+    '<div style="background:rgba(255,255,255,0.08);height:6px;border-radius:3px;overflow:hidden;">' +
+    '<div id="batch-progress-bar" style="background:#07c160;height:100%;width:0%;border-radius:3px;transition:width 0.3s;"></div>' +
+    '</div>' +
+    '</div>' +
+
+    // 强制重新下载选项
+    '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;">' +
+    '<input type="checkbox" id="batch-force-redownload" style="margin-right:8px;cursor:pointer;" />' +
+    '<span>强制重新下载</span>' +
+    '</label>' +
+    '</div>' +
+
     // 次要操作区
     '<div style="padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:8px;">' +
-      '<button id="batch-export-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">导出列表</button>' +
-      '<button id="batch-clear-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">清空列表</button>' +
+    '<button id="batch-export-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">导出列表</button>' +
+    '<button id="batch-clear-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">清空列表</button>' +
     '</div>';
-  
+
   document.body.appendChild(ui);
-  
+
   __wx_batch_download_manager__.isVisible = true;
-  
+
   // 渲染列表
   __render_batch_video_list__();
-  
+
   // 绑定事件
-  setTimeout(function() {
+  setTimeout(function () {
     // 分页
-    document.getElementById('batch-prev-page').onclick = function() {
+    document.getElementById('batch-prev-page').onclick = function () {
       if (__wx_batch_download_manager__.currentPage > 1) {
         __wx_batch_download_manager__.currentPage--;
         __render_batch_video_list__();
       }
     };
-    
-    document.getElementById('batch-next-page').onclick = function() {
+
+    document.getElementById('batch-next-page').onclick = function () {
       if (__wx_batch_download_manager__.currentPage < __wx_batch_download_manager__.getTotalPages()) {
         __wx_batch_download_manager__.currentPage++;
         __render_batch_video_list__();
       }
     };
-    
+
     // 全选
-    document.getElementById('batch-select-all').onchange = function() {
+    document.getElementById('batch-select-all').onchange = function () {
       __wx_batch_download_manager__.selectAllCurrentPage(this.checked);
       __render_batch_video_list__();
     };
-    
+
     // 下载
-    document.getElementById('batch-download-btn').onclick = function() {
+    document.getElementById('batch-download-btn').onclick = function () {
       __batch_download_selected__();
     };
-    
+
     // 取消下载
-    document.getElementById('batch-cancel-btn').onclick = function() {
+    document.getElementById('batch-cancel-btn').onclick = function () {
       __cancel_batch_download__();
     };
-    
+
     // 强制重新下载
-    document.getElementById('batch-force-redownload').onchange = function() {
+    document.getElementById('batch-force-redownload').onchange = function () {
       __wx_batch_download_manager__.forceRedownload = this.checked;
     };
-    
+
     // 导出列表
     var exportBtn = document.getElementById('batch-export-btn');
     if (exportBtn) {
-      exportBtn.addEventListener('mouseenter', function() { 
-        this.style.background = 'rgba(255,255,255,0.08)'; 
-        this.style.color = '#fff'; 
+      exportBtn.addEventListener('mouseenter', function () {
+        this.style.background = 'rgba(255,255,255,0.08)';
+        this.style.color = '#fff';
       });
-      exportBtn.addEventListener('mouseleave', function() { 
-        this.style.background = 'transparent'; 
-        this.style.color = '#999'; 
+      exportBtn.addEventListener('mouseleave', function () {
+        this.style.background = 'transparent';
+        this.style.color = '#999';
       });
-      exportBtn.addEventListener('click', function() { 
-        __export_batch_video_list__(); 
+      exportBtn.addEventListener('click', function () {
+        __export_batch_video_list__();
       });
     }
-    
+
     // 清空列表
     var clearBtn = document.getElementById('batch-clear-btn');
     if (clearBtn) {
-      clearBtn.addEventListener('mouseenter', function() { 
-        this.style.background = 'rgba(255,255,255,0.08)'; 
-        this.style.color = '#fff'; 
+      clearBtn.addEventListener('mouseenter', function () {
+        this.style.background = 'rgba(255,255,255,0.08)';
+        this.style.color = '#fff';
       });
-      clearBtn.addEventListener('mouseleave', function() { 
-        this.style.background = 'transparent'; 
-        this.style.color = '#999'; 
+      clearBtn.addEventListener('mouseleave', function () {
+        this.style.background = 'transparent';
+        this.style.color = '#999';
       });
-      clearBtn.addEventListener('click', function() { 
-        __clear_batch_video_list__(); 
+      clearBtn.addEventListener('click', function () {
+        __clear_batch_video_list__();
       });
     }
-    
+
     // 关闭
-    document.getElementById('batch-close-icon').onclick = function() {
+    document.getElementById('batch-close-icon').onclick = function () {
       __close_batch_download_ui__();
     };
+
+    // 监听实时进度更新
+    document.removeEventListener('wx_download_progress', __handle_download_progress__); // 防止重复绑定
+    document.addEventListener('wx_download_progress', __handle_download_progress__);
   }, 100);
+}
+
+// ==================== 处理进度更新 ====================
+function __handle_download_progress__(e) {
+  var data = e.detail;
+  if (!data) return;
+
+  // 仅在批量下载UI显示时更新
+  if (!__wx_batch_download_manager__.isVisible || !__wx_batch_download_manager__.isDownloading) return;
+
+  var progressText = document.getElementById('batch-progress-text');
+  var progressBar = document.getElementById('batch-progress-bar');
+
+  if (progressText && progressBar && data.percentage > 0) {
+    // 获取当前处理索引（从文本解析或通过其他方式）
+    // 这里简单地在当前文本后追加百分比
+    // data.total 是单个文件的总大小，不是批量任务的总数
+    // 我们可以显示 "1/5 (45%)"
+
+    // 尝试读取当前的进度文本 "1/5"
+    var currentText = progressText.textContent.split(' ')[0]; // 取第一部分 n/m
+    if (currentText && currentText.includes('/')) {
+      var details = data.percentage.toFixed(1) + '%';
+      if (data.total > 0) {
+        var downMB = (data.downloaded / (1024 * 1024)).toFixed(1);
+        var totalMB = (data.total / (1024 * 1024)).toFixed(1);
+        details += ' ' + downMB + '/' + totalMB + ' MB';
+      }
+      progressText.textContent = currentText + ' (' + details + ')';
+    }
+
+    // 更新进度条宽度
+    progressBar.style.width = data.percentage + '%';
+  }
 }
 
 // ==================== 关闭弹窗 ====================
@@ -308,11 +348,21 @@ function __cancel_batch_download__() {
   if (__wx_batch_download_manager__.isDownloading) {
     __wx_batch_download_manager__.stopSignal = true;
     __wx_log({ msg: '⏹️ 正在取消下载...' });
-    
+
     var cancelBtn = document.getElementById('batch-cancel-btn');
     if (cancelBtn) {
       cancelBtn.textContent = '取消中...';
       cancelBtn.disabled = true;
+    }
+
+    // 立即终止当前请求
+    if (__wx_batch_download_manager__.abortController) {
+      try {
+        __wx_batch_download_manager__.abortController.abort();
+        console.log('[批量下载] 已触发 HTTP 请求中断');
+      } catch (e) {
+        console.warn('[批量下载] 中断请求失败:', e);
+      }
     }
   }
 }
@@ -320,19 +370,51 @@ function __cancel_batch_download__() {
 // ==================== 导出视频列表 ====================
 function __export_batch_video_list__() {
   var videos = __wx_batch_download_manager__.videos;
-  
+
   if (videos.length === 0) {
     __wx_log({ msg: '⚠️ 没有可导出的视频' });
     return;
   }
-  
+
   // 格式化导出数据
-  var exportData = videos.map(function(v) {
+  var exportData = videos.map(function (v) {
     var media = v.objectDesc && v.objectDesc.media && v.objectDesc.media[0];
-    
+    var spec = v.spec || (media && media.spec) || [];
+
+    // 解析 bypass 获取更多信息 (如 cgi_id)
+    var cgiId = '';
+    var sourceType = '';
+
+    try {
+      if (spec && spec.length > 0 && spec[0].bypass) {
+        var bypassStr = spec[0].bypass;
+        // 简单提取 cgi_id (兼容 "key":val 和 key:val 格式)
+        var cgiMatch = bypassStr.match(/"cgi_id":(\d+)/) || bypassStr.match(/cgi_id:(\d+)/);
+
+        if (cgiMatch) {
+          cgiId = cgiMatch[1];
+          // 6638 = 首页 (FinderGetRecommend)
+          if (cgiId === '6638') {
+            sourceType = 'Home';
+          }
+          // 8060 = 其他 (未分类)
+          else if (cgiId === '8060') {
+            sourceType = 'Other';
+          }
+          else {
+            sourceType = 'Unknown_' + cgiId;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[batch_download.js] 解析 bypass 失败', e);
+    }
+
     return {
       id: v.id,
       title: v.title || (v.objectDesc && v.objectDesc.description) || '无标题',
+      sourceType: sourceType, // [新增] 数据来源类型
+      cgiId: cgiId,           // [新增] 接口ID
       url: v.url || (media && (media.url + (media.urlToken || ''))),
       key: v.key || (media && (media.decodeKey || media.decryptKey)) || '',
       coverUrl: v.coverUrl || v.thumbUrl || (media && media.thumbUrl),
@@ -341,12 +423,12 @@ function __export_batch_video_list__() {
       nickname: v.nickname || (v.contact && v.contact.nickname) || '',
       createtime: v.createtime,
       // 额外信息
-      spec: v.spec || (media && media.spec) || [],
-      width: (v.spec && v.spec[0] && v.spec[0].width) || (media && media.width) || 0,
-      height: (v.spec && v.spec[0] && v.spec[0].height) || (media && media.height) || 0
+      spec: spec,
+      width: (spec[0] && spec[0].width) || (media && media.width) || 0,
+      height: (spec[0] && spec[0].height) || (media && media.height) || 0
     };
   });
-  
+
   var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -354,8 +436,8 @@ function __export_batch_video_list__() {
   a.download = 'batch_videos_' + new Date().toISOString().slice(0, 10) + '.json';
   a.click();
   URL.revokeObjectURL(url);
-  
-  __wx_log({ msg: '📤 已导出 ' + exportData.length + ' 个视频（含解密密钥）' });
+
+  __wx_log({ msg: '📤 已导出 ' + exportData.length + ' 个视频（含来源标记）' });
 }
 
 // ==================== 清空视频列表 ====================
@@ -364,63 +446,63 @@ function __clear_batch_video_list__() {
     __wx_log({ msg: '⚠️ 下载中，无法清空' });
     return;
   }
-  
+
   var count = __wx_batch_download_manager__.videos.length;
-  
+
   if (count === 0) {
     __wx_log({ msg: '⚠️ 列表已经是空的' });
     return;
   }
-  
+
   // 确认清空
   if (!confirm('确定要清空 ' + count + ' 个视频吗？')) {
     return;
   }
-  
+
   __wx_batch_download_manager__.videos = [];
   __wx_batch_download_manager__.selectedItems = {};
   __wx_batch_download_manager__.currentPage = 1;
-  
+
   // 更新UI
   var countElement = document.getElementById('batch-total-count');
   if (countElement) {
     countElement.textContent = '0 个';
   }
-  
+
   __render_batch_video_list__();
-  
+
   __wx_log({ msg: '🗑️ 已清空 ' + count + ' 个视频' });
 }
 
 // ==================== 更新弹窗 ====================
 function __update_batch_download_ui__(videos, title) {
   if (!__wx_batch_download_manager__.isVisible) return;
-  
+
   // 追加新视频
   var newCount = __wx_batch_download_manager__.appendVideos(videos);
-  
+
   if (title) {
     __wx_batch_download_manager__.title = title;
   }
-  
+
   // 统计视频和直播数量
   var allVideos = __wx_batch_download_manager__.videos;
   var videoCount = 0;
   var liveCount = 0;
-  allVideos.forEach(function(v) {
+  allVideos.forEach(function (v) {
     if (v.type === 'live' || v.type === 'live_replay') {
       liveCount++;
     } else if (v.type === 'media' || !v.type) {
       videoCount++;
     }
   });
-  
+
   // 更新总数
   var countElement = document.getElementById('batch-total-count');
   if (countElement) {
     var statsText = '';
     var currentPath = window.location.pathname;
-    
+
     if (currentPath.includes('/pages/home')) {
       // Home页：显示"X 个视频"
       statsText = videoCount + ' 个视频';
@@ -449,13 +531,13 @@ function __update_batch_download_ui__(videos, title) {
         statsText = allVideos.length + ' 个';
       }
     }
-    
+
     countElement.textContent = statsText;
   }
-  
+
   // 重新渲染列表
   __render_batch_video_list__();
-  
+
   if (newCount > 0) {
     console.log('[批量下载] UI已更新，新增', newCount, '个视频');
   }
@@ -466,13 +548,13 @@ function __render_batch_video_list__() {
   var pageVideos = __wx_batch_download_manager__.getCurrentPageVideos();
   var listContainer = document.getElementById('batch-list');
   if (!listContainer) return;
-  
+
   listContainer.innerHTML = '';
-  
+
   for (var i = 0; i < pageVideos.length; i++) {
     var video = pageVideos[i];
     var isSelected = __wx_batch_download_manager__.selectedItems[video.id];
-    
+
     // 调试：打印视频类型和下载状态
     if (i === 0) {
       console.log('[批量下载] 第一个视频调试信息:', {
@@ -484,20 +566,20 @@ function __render_batch_video_list__() {
         hasKey: video.key !== undefined
       });
     }
-    
+
     var item = document.createElement('div');
     item.style.cssText = 'display:flex;align-items:flex-start;padding:8px;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;transition:background 0.2s;gap:10px;';
-    item.onmouseover = function() { this.style.background = 'rgba(255,255,255,0.08)'; };
-    item.onmouseout = function() { this.style.background = 'rgba(255,255,255,0.05)'; };
-    
+    item.onmouseover = function () { this.style.background = 'rgba(255,255,255,0.08)'; };
+    item.onmouseout = function () { this.style.background = 'rgba(255,255,255,0.05)'; };
+
     // 提取视频信息（兼容多种数据格式）
     var media = video.objectDesc && video.objectDesc.media && video.objectDesc.media[0];
-    
+
     // 判断是否是直播（不能下载）- 必须在使用前定义
     var isLive = video.type === 'live';
     // 只有明确标记为 false 才不能下载，其他情况（undefined、true）都可以下载
     var canDownload = video.canDownload !== false && video.type !== 'live';
-    
+
     // 复选框
     var checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -510,38 +592,38 @@ function __render_batch_video_list__() {
       checkbox.style.opacity = '0.5';
       checkbox.style.cursor = 'not-allowed';
     }
-    checkbox.onclick = function(e) {
+    checkbox.onclick = function (e) {
       e.stopPropagation();
       if (!this.disabled) {
         __wx_batch_download_manager__.toggleSelect(this.dataset.videoId, this.checked);
         __update_batch_ui__();
       }
     };
-    
+
     // 封面URL
-    var coverUrl = video.thumbUrl || video.coverUrl || video.fullThumbUrl || 
-                   (media && media.thumbUrl) || '';
-    
+    var coverUrl = video.thumbUrl || video.coverUrl || video.fullThumbUrl ||
+      (media && media.thumbUrl) || '';
+
     // 标题
-    var title = video.title || 
-                (video.objectDesc && video.objectDesc.description) || 
-                '无标题';
-    
+    var title = video.title ||
+      (video.objectDesc && video.objectDesc.description) ||
+      '无标题';
+
     // 时长（毫秒）
-    var duration = video.duration || 
-                   (media && (media.videoPlayLen * 1000 || media.durationMs)) || 0;
-    
+    var duration = video.duration ||
+      (media && (media.videoPlayLen * 1000 || media.durationMs)) || 0;
+
     // 文件大小（字节）
-    var size = video.size || 
-               (media && (media.fileSize || media.cdnFileSize)) || 0;
-    
+    var size = video.size ||
+      (media && (media.fileSize || media.cdnFileSize)) || 0;
+
     // 作者
-    var nickname = video.nickname || 
-                   (video.contact && video.contact.nickname) || '';
-    
+    var nickname = video.nickname ||
+      (video.contact && video.contact.nickname) || '';
+
     // 创建时间
     var createtime = video.createtime || 0;
-    
+
     // 格式化时长
     var durationStr = '';
     if (duration) {
@@ -550,14 +632,14 @@ function __render_batch_video_list__() {
       seconds = seconds % 60;
       durationStr = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
     }
-    
+
     // 格式化文件大小
     var sizeStr = '';
     if (size) {
       var mb = size / (1024 * 1024);
       sizeStr = mb.toFixed(1) + ' MB';
     }
-    
+
     // 格式化发布时间
     var publishTime = '';
     if (createtime) {
@@ -566,11 +648,11 @@ function __render_batch_video_list__() {
       var day = date.getDate();
       publishTime = month + '月' + day + '日';
     }
-    
+
     // 封面容器（带时长标签）
     var thumbContainer = document.createElement('div');
     thumbContainer.style.cssText = 'width:60px;height:40px;border-radius:4px;overflow:hidden;background:#1a1a1a;flex-shrink:0;position:relative;';
-    
+
     if (coverUrl) {
       var thumbImg = document.createElement('img');
       thumbImg.src = coverUrl;
@@ -582,7 +664,7 @@ function __render_batch_video_list__() {
       noThumb.textContent = '无封面';
       thumbContainer.appendChild(noThumb);
     }
-    
+
     // 直播标签（左上角）
     if (isLive) {
       var liveLabel = document.createElement('div');
@@ -590,7 +672,7 @@ function __render_batch_video_list__() {
       liveLabel.textContent = '直播';
       thumbContainer.appendChild(liveLabel);
     }
-    
+
     // 时长标签（右下角）
     if (durationStr && !isLive) {
       var durationLabel = document.createElement('div');
@@ -598,16 +680,16 @@ function __render_batch_video_list__() {
       durationLabel.textContent = durationStr;
       thumbContainer.appendChild(durationLabel);
     }
-    
+
     // 信息容器
     var info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;';
-    
+
     // 标题
     var titleDiv = document.createElement('div');
     titleDiv.style.cssText = 'font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;';
     titleDiv.textContent = title;
-    
+
     // 如果是直播回放，添加回放标签
     if (video.type === 'live_replay') {
       var replayBadge = document.createElement('span');
@@ -624,37 +706,37 @@ function __render_batch_video_list__() {
       titleDiv.appendChild(tipSpan);
     }
     info.appendChild(titleDiv);
-    
+
     // 详细信息（大小、日期、作者）
     var detailDiv = document.createElement('div');
     detailDiv.style.cssText = 'display:flex;gap:8px;font-size:11px;color:#999;flex-wrap:wrap;';
-    
+
     var details = [];
     if (sizeStr) details.push('<span>' + sizeStr + '</span>');
     if (publishTime) details.push('<span>' + publishTime + '</span>');
     if (nickname) details.push('<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;">@' + nickname + '</span>');
-    
+
     detailDiv.innerHTML = details.join('');
     info.appendChild(detailDiv);
-    
+
     // 组装列表项
     item.appendChild(checkbox);
     item.appendChild(thumbContainer);
     item.appendChild(info);
-    
-    item.onclick = function() {
+
+    item.onclick = function () {
       // 如果是直播或不能下载，不响应点击
       if (isLive || !canDownload) return;
-      
+
       var cb = this.querySelector('input[type="checkbox"]');
       cb.checked = !cb.checked;
       __wx_batch_download_manager__.toggleSelect(cb.dataset.videoId, cb.checked);
       __update_batch_ui__();
     };
-    
+
     listContainer.appendChild(item);
   }
-  
+
   __update_batch_ui__();
 }
 
@@ -662,14 +744,14 @@ function __update_batch_ui__() {
   // 更新页码
   document.getElementById('batch-current-page').textContent = __wx_batch_download_manager__.currentPage;
   document.getElementById('batch-total-pages').textContent = __wx_batch_download_manager__.getTotalPages();
-  
+
   // 更新选中数量
   var selectedCount = __wx_batch_download_manager__.getSelectedVideos().length;
   document.getElementById('batch-selected-count').textContent = '已选 ' + selectedCount + ' 个';
-  
+
   // 更新全选状态
   var pageVideos = __wx_batch_download_manager__.getCurrentPageVideos();
-  var allSelected = pageVideos.length > 0 && pageVideos.every(function(video) {
+  var allSelected = pageVideos.length > 0 && pageVideos.every(function (video) {
     return __wx_batch_download_manager__.selectedItems[video.id];
   });
   var selectAllCheckbox = document.getElementById('batch-select-all');
@@ -681,27 +763,27 @@ function __update_batch_ui__() {
 // ==================== 批量下载 ====================
 async function __batch_download_selected__() {
   var selectedVideos = __wx_batch_download_manager__.getSelectedVideos();
-  
+
   if (selectedVideos.length === 0) {
     __wx_log({ msg: '❌ 请先选择要下载的视频' });
     return;
   }
-  
+
   if (__wx_batch_download_manager__.isDownloading) {
     __wx_log({ msg: '⚠️ 正在下载中，请等待...' });
     return;
   }
-  
+
   // 格式化视频数据（使用 WXU.format_feed 统一格式）
   var formattedVideos = [];
   for (var i = 0; i < selectedVideos.length; i++) {
     var video = selectedVideos[i];
-    
+
     // 跳过不能下载的项目（直播等）
     if (video.canDownload === false || video.type === 'live') {
       continue;
     }
-    
+
     // 如果已经格式化过（有 url 和 key 字段），直接使用
     if (video.url && video.key !== undefined) {
       formattedVideos.push(video);
@@ -713,25 +795,25 @@ async function __batch_download_selected__() {
       }
     }
   }
-  
+
   if (formattedVideos.length === 0) {
     __wx_log({ msg: '❌ 没有可下载的视频' });
     return;
   }
-  
+
   // 设置下载状态
   __wx_batch_download_manager__.isDownloading = true;
   __wx_batch_download_manager__.stopSignal = false;
-  
+
   __wx_log({ msg: '🚀 开始下载 ' + formattedVideos.length + ' 个视频...' });
-  
+
   // 显示进度和取消按钮
   var progressDiv = document.getElementById('batch-download-progress');
   var progressText = document.getElementById('batch-progress-text');
   var progressBar = document.getElementById('batch-progress-bar');
   var downloadBtn = document.getElementById('batch-download-btn');
   var cancelBtn = document.getElementById('batch-cancel-btn');
-  
+
   if (progressDiv) progressDiv.style.display = 'block';
   if (downloadBtn) {
     downloadBtn.textContent = '下载中...';
@@ -743,11 +825,11 @@ async function __batch_download_selected__() {
     cancelBtn.textContent = '取消';
     cancelBtn.disabled = false;
   }
-  
+
   var downloadCount = 0;
   var failCount = 0;
   var skipCount = 0;
-  
+
   // 使用 async/await 方式，与 Profile 页面保持一致
   for (var i = 0; i < formattedVideos.length; i++) {
     // 检查取消信号
@@ -755,20 +837,20 @@ async function __batch_download_selected__() {
       __wx_log({ msg: '⏹️ 下载已取消，已完成 ' + i + '/' + formattedVideos.length });
       break;
     }
-    
+
     var video = formattedVideos[i];
-    
+
     // 更新进度
     if (progressText) progressText.textContent = (i + 1) + '/' + formattedVideos.length;
     if (progressBar) progressBar.style.width = ((i + 1) / formattedVideos.length * 100) + '%';
-    
+
     try {
       // 构建下载请求（与 Profile 页面完全一致）
       var authorName = video.nickname || (video.contact && video.contact.nickname) || '未知作者';
       var filename = video.title || video.id || String(Date.now());
       var resolution = '';
       var width = 0, height = 0, fileFormat = '';
-      
+
       if (video.spec && video.spec.length > 0) {
         var firstSpec = video.spec[0];
         width = firstSpec.width || 0;
@@ -776,7 +858,7 @@ async function __batch_download_selected__() {
         resolution = width && height ? (width + 'x' + height) : '';
         fileFormat = firstSpec.fileFormat || '';
       }
-      
+
       var requestData = {
         videoUrl: video.url,
         videoId: video.id || '',
@@ -789,20 +871,25 @@ async function __batch_download_selected__() {
         height: height,
         fileFormat: fileFormat
       };
-      
+
+      // 创建 AbortController
+      var controller = new AbortController();
+      __wx_batch_download_manager__.abortController = controller;
+
       var response = await fetch('/__wx_channels_api/download_video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify(requestData),
+        signal: controller.signal
       });
-      
+
       // 检查 HTTP 状态码
       if (!response.ok) {
         throw new Error('HTTP ' + response.status + ': ' + response.statusText);
       }
-      
+
       var result = await response.json();
-      
+
       if (result.success) {
         if (result.skipped) {
           skipCount++;
@@ -813,25 +900,41 @@ async function __batch_download_selected__() {
         failCount++;
         console.error('[批量下载] 下载失败:', video.title, result.error || '未知错误');
       }
-      
+
       // 每10个或最后一个时显示进度
       if ((i + 1) % 10 === 0 || i === formattedVideos.length - 1) {
         __wx_log({ msg: '📥 已处理 ' + (i + 1) + ' / ' + formattedVideos.length });
       }
-      
+
       // 添加延迟避免请求过快（与 Profile 页面一致）
       await WXU.sleep(300);
-      
+
     } catch (err) {
-      failCount++;
-      console.error('[批量下载] 下载出错:', video.title, err.message || err);
+      // 如果是取消导致的 AbortError，不计入失败
+      if (err.name === 'AbortError' || err.message === 'The user aborted a request.') {
+        console.log('[批量下载] 请求已手动取消:', video.title);
+        // 调用后端取消接口，确保后端任务被终止
+        try {
+          fetch('/__wx_channels_api/cancel_download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoId: video.id || '' })
+          });
+        } catch (ignore) { }
+
+        // 确保后续循环也能退出
+        __wx_batch_download_manager__.stopSignal = true;
+      } else {
+        failCount++;
+        console.error('[批量下载] 下载出错:', video.title, err.message || err);
+      }
     }
   }
-  
+
   // 下载完成，重置状态
   __wx_batch_download_manager__.isDownloading = false;
   __wx_batch_download_manager__.stopSignal = false;
-  
+
   if (downloadBtn) {
     downloadBtn.textContent = '开始下载';
     downloadBtn.style.opacity = '1';
@@ -840,18 +943,18 @@ async function __batch_download_selected__() {
   if (cancelBtn) {
     cancelBtn.style.display = 'none';
   }
-  
+
   // 延迟隐藏进度条（让用户看到完成状态）
-  setTimeout(function() {
+  setTimeout(function () {
     if (progressDiv) progressDiv.style.display = 'none';
     if (progressBar) progressBar.style.width = '0%';
   }, 2000);
-  
+
   // 下载完成
   var summaryMsg = '✅ 批量下载完成: 成功 ' + downloadCount + ' 个';
   if (skipCount > 0) summaryMsg += ', 跳过 ' + skipCount + ' 个';
   if (failCount > 0) summaryMsg += ', 失败 ' + failCount + ' 个';
-  
+
   __wx_log({ msg: summaryMsg });
 }
 

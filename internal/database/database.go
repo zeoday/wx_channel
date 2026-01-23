@@ -10,29 +10,29 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// DB is the global database instance
+// DB 是全局数据库实例
 var (
 	db   *sql.DB
 	once sync.Once
 )
 
-// Config holds database configuration
+// Config 包含数据库配置
 type Config struct {
 	DBPath string
 }
 
-// Initialize initializes the database connection and runs migrations
+// Initialize 初始化数据库连接并运行迁移
 func Initialize(cfg *Config) error {
 	var initErr error
 	once.Do(func() {
-		// Ensure directory exists
+		// 确保目录存在
 		dir := filepath.Dir(cfg.DBPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			initErr = fmt.Errorf("failed to create database directory: %w", err)
 			return
 		}
 
-		// Open database connection
+		// 打开数据库连接
 		var err error
 		db, err = sql.Open("sqlite3", cfg.DBPath+"?_foreign_keys=on&_journal_mode=WAL")
 		if err != nil {
@@ -40,13 +40,13 @@ func Initialize(cfg *Config) error {
 			return
 		}
 
-		// Test connection
+		// 测试连接
 		if err := db.Ping(); err != nil {
 			initErr = fmt.Errorf("failed to ping database: %w", err)
 			return
 		}
 
-		// Run migrations
+		// 运行迁移
 		if err := runMigrations(); err != nil {
 			initErr = fmt.Errorf("failed to run migrations: %w", err)
 			return
@@ -55,12 +55,12 @@ func Initialize(cfg *Config) error {
 	return initErr
 }
 
-// GetDB returns the database instance
+// GetDB 返回数据库实例
 func GetDB() *sql.DB {
 	return db
 }
 
-// Close closes the database connection
+// Close 关闭数据库连接
 func Close() error {
 	if db != nil {
 		return db.Close()

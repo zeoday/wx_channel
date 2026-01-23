@@ -7,15 +7,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"wx_channel/internal/utils"
 )
 
 // Hub 管理所有 WebSocket 客户端连接
 type Hub struct {
-	clients      map[*Client]bool
-	register     chan *Client
-	unregister   chan *Client
-	mu           sync.RWMutex
-	lastClient   *Client // 最后注册的客户端
+	clients    map[*Client]bool
+	register   chan *Client
+	unregister chan *Client
+	mu         sync.RWMutex
+	lastClient *Client // 最后注册的客户端
 
 	// API 调用管理
 	requests   map[string]chan APICallResponse
@@ -42,10 +44,12 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.lastClient = client // 记录最后注册的客户端
 			h.mu.Unlock()
+			utils.LogInfo("WebSocket 客户端已连接: %s", client.Conn.RemoteAddr().String())
 
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
+				addr := client.Conn.RemoteAddr().String()
 				delete(h.clients, client)
 				client.Close()
 				// 如果注销的是最后一个客户端，清除引用
@@ -57,6 +61,7 @@ func (h *Hub) Run() {
 						break
 					}
 				}
+				utils.LogInfo("WebSocket 客户端已断开: %s", addr)
 			}
 			h.mu.Unlock()
 		}
@@ -84,7 +89,7 @@ func (h *Hub) GetClient() (*Client, error) {
 	for client := range h.clients {
 		return client, nil
 	}
-	
+
 	return nil, errors.New("no available client")
 }
 
@@ -171,4 +176,62 @@ func (h *Hub) handleAPIResponse(resp APICallResponse) {
 			// 响应通道已满（不应该发生）
 		}
 	}
+}
+
+// BroadcastCommand 向所有客户端广播指令
+func (h *Hub) BroadcastCommand(action string, payload interface{}) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if len(h.clients) == 0 {
+		return errors.New("no connected clients")
+	}
+
+	cmdData := map[string]interface{}{
+		"action":  action,
+		"payload": payload,
+	}
+
+	data, err := json.Marshal(cmdData)
+	if err != nil {
+		return err
+	}
+
+	msg := WSMessage{
+		Type: WSMessageTypeCommand,
+		Data: data,
+	}
+
+	msgData, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	for client := range h.clients {
+		// 忽略发送错误，尽可能发送给所有客户端
+		client.Send(msgData)
+	}
+
+	return nil
+}
+
+// Broadcast 广播任意消息到所有客户端
+func (h *Hub) Broadcast(message interface{}) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if len(h.clients) == 0 {
+		return nil
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	for client := range h.clients {
+		client.Send(data)
+	}
+
+	return nil
 }

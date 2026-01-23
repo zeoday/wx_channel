@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,31 +16,20 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
-	"wx_channel/internal/models"
-	"wx_channel/internal/storage"
+	"wx_channel/internal/services"
 	"wx_channel/internal/utils"
-	"wx_channel/pkg/util"
 
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
 
-// parseKey 解析密钥字符串为 uint64
-func parseKey(key string) (uint64, error) {
-	// 尝试直接解析为数字
-	if seed, err := strconv.ParseUint(key, 10, 64); err == nil {
-		return seed, nil
-	}
-	// 如果不是纯数字，可能是其他格式，暂不支持
-	return 0, fmt.Errorf("无效的密钥格式: %s", key)
-}
-
 // BatchHandler 批量下载处理器
 type BatchHandler struct {
-	csvManager *storage.CSVManager
-	mu         sync.RWMutex
-	tasks      []BatchTask
-	running    bool
-	cancelFunc context.CancelFunc // 用于取消时立即中断下载
+	downloadService *services.DownloadRecordService
+	gopeedService   *services.GopeedService // Injected Gopeed Service
+	mu              sync.RWMutex
+	tasks           []BatchTask
+	running         bool
+	cancelFunc      context.CancelFunc // 用于取消时立即中断下载
 }
 
 // BatchTask 批量下载任务
@@ -105,6 +93,40 @@ func (t *BatchTask) GetKey() string {
 	return t.DecryptKey
 }
 
+// Handle implements router.Interceptor
+func (h *BatchHandler) Handle(Conn *SunnyNet.HttpConn) bool {
+	// Defensive checks
+	if h == nil {
+		return false
+	}
+	if Conn == nil || Conn.Request == nil || Conn.Request.URL == nil {
+		return false
+	}
+
+	// Debug log
+	// utils.Info("BatchHandler checking: %s", Conn.Request.URL.Path)
+
+	if h.HandleBatchStart(Conn) {
+		return true
+	}
+	if h.HandleBatchProgress(Conn) {
+		return true
+	}
+	if h.HandleBatchCancel(Conn) {
+		return true
+	}
+	if h.HandleBatchResume(Conn) {
+		return true
+	}
+	if h.HandleBatchClear(Conn) {
+		return true
+	}
+	if h.HandleBatchFailed(Conn) {
+		return true
+	}
+	return false
+}
+
 // GetCover 获取封面URL，兼容两种格式
 func (t *BatchTask) GetCover() string {
 	if t.Cover != "" {
@@ -114,10 +136,11 @@ func (t *BatchTask) GetCover() string {
 }
 
 // NewBatchHandler 创建批量下载处理器
-func NewBatchHandler(cfg *config.Config, csvManager *storage.CSVManager) *BatchHandler {
+func NewBatchHandler(cfg *config.Config, gopeedService *services.GopeedService) *BatchHandler {
 	return &BatchHandler{
-		csvManager: csvManager,
-		tasks:      make([]BatchTask, 0),
+		downloadService: services.NewDownloadRecordService(),
+		gopeedService:   gopeedService,
+		tasks:           make([]BatchTask, 0),
 	}
 }
 
@@ -411,9 +434,9 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 	}
 
 	// 优先使用视频ID进行去重检查（如果提供了视频ID）
-	if !forceRedownload && task.ID != "" && h.csvManager != nil {
-		if exists, err := h.csvManager.RecordExists(task.ID); err == nil && exists {
-			// CSV记录中已存在该视频ID，说明已下载过，尝试查找文件
+	if !forceRedownload && task.ID != "" && h.downloadService != nil {
+		if exists, err := h.downloadService.GetByID(task.ID); err == nil && exists != nil {
+			// DB记录中已存在该视频ID，说明已下载过，尝试查找文件
 			// 使用包含ID的文件名查找
 			filenameWithID := utils.GenerateVideoFilename(task.Title, task.ID)
 			filenameWithID = utils.EnsureExtension(filenameWithID, ".mp4")
@@ -425,6 +448,8 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 				return nil
 			}
 		}
+	} else if h.downloadService == nil {
+		utils.Warn("downloadService is nil, skipping DB check")
 	}
 
 	// 生成文件名：优先使用视频ID确保唯一性
@@ -507,310 +532,70 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 
 // downloadVideoOnce 执行一次下载尝试（支持断点续传）
 func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, filePath string, taskIdx int) error {
-	tmpPath := filePath + ".tmp"
-
-	// 判断是否需要解密：优先使用 key（新方式），其次使用 decryptorPrefix（旧方式）
-	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
-
-	// 断点续传：检查已下载的部分（仅非加密视频支持）
-	var resumeOffset int64 = 0
-	resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
-	if !needDecrypt && resumeEnabled {
-		if stat, err := os.Stat(tmpPath); err == nil {
-			resumeOffset = stat.Size()
-			utils.Info("📍 [批量下载] 断点续传，从 %.2f MB 继续", float64(resumeOffset)/(1024*1024))
-		}
+	// 使用 Gopeed 下载
+	if h.gopeedService == nil {
+		return fmt.Errorf("Gopeed下载服务未初始化")
 	}
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Transport: &http.Transport{
-			MaxIdleConns:          10,
-			MaxIdleConnsPerHost:   2,
-			IdleConnTimeout:       30 * time.Second,
-			DisableKeepAlives:     false,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
-		},
-	}
+	// 开始下载
+	utils.Info("🚀 [批量下载] 使用 Gopeed 下载: %s", task.Title)
 
-	// 创建请求
-	req, err := http.NewRequestWithContext(ctx, "GET", task.URL, nil)
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %v", err)
-	}
+	// 创建临时文件路径（Gopeed 会处理，这里我们只需要传递最终路径，
+	// 但 GopeedService.DownloadSync 还没有实现自动重命名？
+	// 让我们看看 GopeedService.DownloadSync 的实现。
+	// 它是直接调用 CreateDirect，并没有阻塞直到完成？
+	// 之前的 gopeed_service.go 实现是轮询状态直到 DownloadStatusDone。
+	// 所以是阻塞的。
 
-	// 断点续传：设置 Range 头
-	if resumeOffset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeOffset))
-	}
+	// 注意：Gopeed 下载的临时文件名处理可能需要注意。
+	// 如果我们传递 filePath，Gopeed 会直接下载到那个路径（或所在目录）。
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 检查响应状态
-	if resp.StatusCode != 200 && resp.StatusCode != 206 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	// 如果服务器不支持 Range，重新下载
-	if resumeOffset > 0 && resp.StatusCode != 206 {
-		utils.Warn("⚠️ [批量下载] 服务器不支持断点续传，重新下载")
-		resumeOffset = 0
-		os.Remove(tmpPath)
-	}
-
-	// 计算总大小
-	var totalSize int64
-	if resp.StatusCode == 206 {
-		// 断点续传：总大小 = 已下载 + Content-Length
-		totalSize = resumeOffset + resp.ContentLength
-	} else {
-		totalSize = resp.ContentLength
-	}
-
-	if totalSize > 0 {
-		sizeMB := float64(totalSize) / (1024 * 1024)
-		utils.Info("📦 [批量下载] 文件大小: %.2f MB", sizeMB)
+	onProgress := func(progress float64, downloaded int64, total int64) {
 		h.mu.Lock()
+		defer h.mu.Unlock()
+
+		// 确保任务索引有效
 		if taskIdx >= 0 && taskIdx < len(h.tasks) {
-			h.tasks[taskIdx].TotalMB = sizeMB
-		}
-		h.mu.Unlock()
-	}
+			task := &h.tasks[taskIdx]
 
-	// 打开/创建文件
-	var out *os.File
-	if resumeOffset > 0 {
-		out, err = os.OpenFile(tmpPath, os.O_APPEND|os.O_WRONLY, 0644)
-	} else {
-		out, err = os.Create(tmpPath)
-	}
-	if err != nil {
-		return fmt.Errorf("创建文件失败: %v", err)
-	}
-
-	// 下载并写入
-	var writeErr error
-	if needDecrypt {
-		utils.Info("🔐 [批量下载] 开始解密下载...")
-		writeErr = h.downloadAndDecrypt(ctx, resp.Body, out, task, taskIdx, totalSize)
-	} else {
-		utils.Info("📥 [批量下载] 开始下载...")
-		writeErr = h.downloadWithProgress(ctx, resp.Body, out, taskIdx, totalSize, resumeOffset)
-	}
-
-	closeErr := out.Close()
-
-	if writeErr != nil {
-		// 断点续传模式下不删除临时文件
-		resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
-		if !resumeEnabled || needDecrypt {
-			os.Remove(tmpPath)
-		}
-		return fmt.Errorf("写入文件失败: %v", writeErr)
-	}
-	if closeErr != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("关闭文件失败: %v", closeErr)
-	}
-
-	// 验证文件
-	stat, err := os.Stat(tmpPath)
-	if err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("验证文件失败: %v", err)
-	}
-	if stat.Size() == 0 {
-		os.Remove(tmpPath)
-		return fmt.Errorf("下载的文件为空")
-	}
-
-	// 重命名为最终文件
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("重命名文件失败: %v", err)
-	}
-
-	sizeMB := float64(stat.Size()) / (1024 * 1024)
-	if needDecrypt {
-		utils.Info("✓ 视频已保存（已解密）: %s (%.2f MB)", filePath, sizeMB)
-	} else {
-		utils.Info("✓ 视频已保存: %s (%.2f MB)", filePath, sizeMB)
-	}
-
-	return nil
-}
-
-// downloadWithProgress 带进度的下载（支持断点续传）
-func (h *BatchHandler) downloadWithProgress(ctx context.Context, reader io.Reader, writer io.Writer, taskIdx int, totalSize int64, resumeOffset int64) error {
-	buf := make([]byte, 32*1024)
-	totalCopied := resumeOffset
-	lastLog := time.Now()
-
-	for {
-		// 检查是否取消
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("下载已取消")
-		default:
-		}
-
-		nr, er := reader.Read(buf)
-		if nr > 0 {
-			nw, ew := writer.Write(buf[0:nr])
-			if nw > 0 {
-				totalCopied += int64(nw)
-
-				// 更新进度
-				if totalSize > 0 {
-					progress := float64(totalCopied) / float64(totalSize) * 100
-					downloadedMB := float64(totalCopied) / (1024 * 1024)
-
-					h.mu.Lock()
-					if taskIdx >= 0 && taskIdx < len(h.tasks) {
-						h.tasks[taskIdx].Progress = progress
-						h.tasks[taskIdx].DownloadedMB = downloadedMB
-					}
-					h.mu.Unlock()
+			// 只在下载中状态更新，避免覆盖完成状态
+			if task.Status == "downloading" {
+				task.Progress = progress * 100 // 转换为百分比
+				task.DownloadedMB = float64(downloaded) / (1024 * 1024)
+				task.TotalMB = float64(total) / (1024 * 1024)
+				// 也可以根据需要计算 SizeMB 字符串
+				if total > 0 {
+					task.SizeMB = fmt.Sprintf("%.2fMB", task.TotalMB)
 				}
 			}
-			if ew != nil {
-				return fmt.Errorf("写入数据失败: %v", ew)
-			}
-			if nr != nw {
-				return fmt.Errorf("写入不完整")
-			}
-
-			// 每5秒输出一次进度
-			if time.Since(lastLog) > 5*time.Second {
-				utils.Info("📊 [批量下载] 已下载: %.2f MB", float64(totalCopied)/(1024*1024))
-				lastLog = time.Now()
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				return fmt.Errorf("读取数据失败: %v", er)
-			}
-			break
 		}
 	}
 
-	return nil
-}
-
-// downloadAndDecrypt 下载并解密视频
-func (h *BatchHandler) downloadAndDecrypt(ctx context.Context, reader io.Reader, writer io.Writer, task *BatchTask, taskIdx int, totalSize int64) error {
-	var decryptorPrefix []byte
-	var prefixLen int
-
-	// 优先使用 key 生成解密数组（新方式）
-	if task.Key != "" {
-		// 解析 key 为 uint64
-		seed, err := parseKey(task.Key)
-		if err != nil {
-			return fmt.Errorf("解析密钥失败: %v", err)
-		}
-		// 生成 128KB 解密数组
-		prefixLen = 131072
-		decryptorPrefix = util.GenerateDecryptorArray(seed, prefixLen)
-		utils.Info("🔑 [批量下载] 从 key 生成解密数组，长度: %d bytes", len(decryptorPrefix))
-	} else if task.DecryptorPrefix != "" && task.PrefixLen > 0 {
-		// 使用前端传递的解密数组（旧方式）
-		var err error
-		decryptorPrefix, err = base64.StdEncoding.DecodeString(task.DecryptorPrefix)
-		if err != nil {
-			return fmt.Errorf("解码密钥失败: %v", err)
-		}
-		prefixLen = task.PrefixLen
-		utils.Info("🔑 [批量下载] 使用前端解密数组，长度: %d bytes", len(decryptorPrefix))
-	} else {
-		return fmt.Errorf("缺少解密密钥")
+	err := h.gopeedService.DownloadSync(ctx, task.URL, filePath, onProgress)
+	if err != nil {
+		return err
 	}
 
-	// 读取前缀数据
-	prefixData := make([]byte, prefixLen)
-	n, err := io.ReadFull(reader, prefixData)
-	if err != nil && err != io.ErrUnexpectedEOF {
-		return fmt.Errorf("读取前缀失败: %v", err)
-	}
-	prefixData = prefixData[:n]
-
-	utils.Info("📖 [批量下载] 读取前缀: %d bytes", n)
-
-	// 解密前缀
-	decryptedPrefix := util.XorDecrypt(prefixData, decryptorPrefix)
-
-	// 写入解密后的前缀
-	if _, err := writer.Write(decryptedPrefix); err != nil {
-		return fmt.Errorf("写入解密前缀失败: %v", err)
+	// 解密逻辑（如果需要）
+	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
+	if needDecrypt {
+		utils.Info("🔐 [批量下载] 开始解密视频...")
+		// 原地解密（不需要额外的临时文件，因为 gopeed 已经下载了完整文件）
+		if err := utils.DecryptFileInPlace(filePath, task.GetKey(), task.DecryptorPrefix, task.PrefixLen); err != nil {
+			return fmt.Errorf("解密失败: %v", err)
+		}
+		utils.Info("✓ [批量下载] 解密完成")
 	}
 
-	utils.Info("✓ [批量下载] 前缀解密完成")
-
-	// 复制剩余数据（带进度和取消检查）
-	buf := make([]byte, 32*1024)
-	totalCopied := int64(n)
-	lastLog := time.Now()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("下载已取消")
-		default:
-		}
-
-		nr, er := reader.Read(buf)
-		if nr > 0 {
-			nw, ew := writer.Write(buf[0:nr])
-			if nw > 0 {
-				totalCopied += int64(nw)
-
-				if totalSize > 0 {
-					progress := float64(totalCopied) / float64(totalSize) * 100
-					downloadedMB := float64(totalCopied) / (1024 * 1024)
-
-					h.mu.Lock()
-					if taskIdx >= 0 && taskIdx < len(h.tasks) {
-						h.tasks[taskIdx].Progress = progress
-						h.tasks[taskIdx].DownloadedMB = downloadedMB
-					}
-					h.mu.Unlock()
-				}
-			}
-			if ew != nil {
-				return fmt.Errorf("写入数据失败: %v", ew)
-			}
-			if nr != nw {
-				return fmt.Errorf("写入不完整")
-			}
-
-			if time.Since(lastLog) > 5*time.Second {
-				utils.Info("📊 [批量下载] 已下载: %.2f MB", float64(totalCopied)/(1024*1024))
-				lastLog = time.Now()
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				return fmt.Errorf("读取数据失败: %v", er)
-			}
-			break
-		}
-	}
-
-	utils.Info("✓ [批量下载] 剩余数据复制完成: %.2f MB", float64(totalCopied)/(1024*1024))
 	return nil
 }
 
 // saveDownloadRecord 保存下载记录到数据库
 func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, status string) {
-	// 检查CSV中是否已存在记录（避免重复记录）
-	if h.csvManager != nil {
-		if exists, err := h.csvManager.RecordExists(task.ID); err == nil && exists {
-			utils.Info("📝 [下载记录] 记录已存在，跳过保存: %s - %s", task.Title, task.GetAuthor())
+	// 检查DB中是否已存在记录
+	if h.downloadService != nil {
+		if existing, err := h.downloadService.GetByID(task.ID); err == nil && existing != nil {
+			utils.Info("📝 [下载记录] 记录已存在(DB)，跳过保存: %s - %s", task.Title, task.GetAuthor())
 			return
 		}
 	}
@@ -862,73 +647,18 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 	}
 
 	// 保存到数据库
-	repo := database.NewDownloadRecordRepository()
-	if err := repo.Create(record); err != nil {
-		// 如果是重复记录，尝试更新
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			if updateErr := repo.Update(record); updateErr != nil {
-				utils.Warn("更新下载记录失败: %v", updateErr)
-			}
-		} else {
-			utils.Warn("保存下载记录失败: %v", err)
-		}
-	} else {
-		utils.Info("📝 [下载记录] 已保存: %s - %s", task.Title, task.GetAuthor())
-	}
-
-	// 保存到CSV文件
-	if h.csvManager != nil {
-		// 格式化文件大小为字符串
-		fileSizeStr := fmt.Sprintf("%.2f MB", float64(fileSize)/(1024*1024))
-
-		// 格式化时长为字符串（从毫秒转换为 HH:MM:SS 或 MM:SS）
-		durationStr := ""
-		if duration > 0 {
-			totalSeconds := duration / 1000
-			hours := totalSeconds / 3600
-			minutes := (totalSeconds % 3600) / 60
-			secs := totalSeconds % 60
-			if hours > 0 {
-				durationStr = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
+	if h.downloadService != nil {
+		if err := h.downloadService.Create(record); err != nil {
+			// 如果是重复记录，尝试更新
+			if strings.Contains(err.Error(), "UNIQUE constraint") {
+				if updateErr := h.downloadService.Update(record); updateErr != nil {
+					utils.Warn("更新下载记录失败: %v", updateErr)
+				}
 			} else {
-				durationStr = fmt.Sprintf("%02d:%02d", minutes, secs)
+				utils.Warn("保存下载记录失败: %v", err)
 			}
-		}
-
-		// 创建CSV记录
-		// 使用任务中的PageSource，如果没有则默认为"batch"
-		pageSource := task.PageSource
-		if pageSource == "" {
-			pageSource = "batch" // 默认标记为批量下载
-		}
-
-		csvRecord := &models.VideoDownloadRecord{
-			ID:            task.ID,
-			Title:         task.Title,
-			Author:        task.GetAuthor(),
-			AuthorType:    "",
-			OfficialName:  "",
-			URL:           task.URL,
-			PageURL:       "",
-			FileSize:      fileSizeStr,
-			Duration:      durationStr,
-			PlayCount:     task.PlayCount,    // 使用任务中的播放量
-			LikeCount:     task.LikeCount,    // 使用任务中的点赞数
-			CommentCount:  task.CommentCount, // 使用任务中的评论数
-			FavCount:      task.FavCount,     // 使用任务中的收藏数
-			ForwardCount:  task.ForwardCount, // 使用任务中的转发数
-			CreateTime:    task.CreateTime,   // 使用任务中的创建时间
-			IPRegion:      task.IPRegion,     // 使用任务中的IP所在地
-			DownloadAt:    time.Now(),
-			PageSource:    pageSource, // 使用实际的页面来源
-			SearchKeyword: "",
-		}
-
-		// 保存到CSV
-		if err := h.csvManager.AddRecord(csvRecord); err != nil {
-			utils.Warn("保存CSV记录失败: %v", err)
 		} else {
-			utils.Info("📄 [CSV记录] 已保存: %s - %s", task.Title, task.GetAuthor())
+			utils.Info("📝 [下载记录] 已保存(DB): %s - %s", task.Title, task.GetAuthor())
 		}
 	}
 }

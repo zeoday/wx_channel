@@ -7,20 +7,20 @@ import (
 	"wx_channel/internal/database"
 )
 
-// DownloadRecordService handles download record business logic
+// DownloadRecordService 处理下载记录业务逻辑
 type DownloadRecordService struct {
 	repo *database.DownloadRecordRepository
 }
 
-// NewDownloadRecordService creates a new DownloadRecordService
+// NewDownloadRecordService 创建一个新的 DownloadRecordService
 func NewDownloadRecordService() *DownloadRecordService {
 	return &DownloadRecordService{
 		repo: database.NewDownloadRecordRepository(),
 	}
 }
 
-// List retrieves download records with filtering and pagination
-// Requirements: 2.3, 2.4 - filter by date range and status
+// List 获取下载记录（带过滤和分页）
+// Requirements: 2.3, 2.4 - 按日期范围和状态过滤
 func (s *DownloadRecordService) List(params *database.FilterParams) (*database.PagedResult[database.DownloadRecord], error) {
 	if params == nil {
 		params = &database.FilterParams{
@@ -35,13 +35,13 @@ func (s *DownloadRecordService) List(params *database.FilterParams) (*database.P
 	return s.repo.List(params)
 }
 
-// GetByID retrieves a single download record by ID
+// GetByID 按 ID 获取单条下载记录
 func (s *DownloadRecordService) GetByID(id string) (*database.DownloadRecord, error) {
 	return s.repo.GetByID(id)
 }
 
-// Delete removes a download record by ID, optionally deleting the file
-// Requirements: 5.3 - delete with option to keep or delete files
+// Delete 按 ID 删除下载记录（可选删除文件）
+// Requirements: 5.3 - 删除记录（可选择保留或删除文件）
 func (s *DownloadRecordService) Delete(id string, deleteFile bool) error {
 	if deleteFile {
 		record, err := s.repo.GetByID(id)
@@ -49,16 +49,15 @@ func (s *DownloadRecordService) Delete(id string, deleteFile bool) error {
 			return err
 		}
 		if record != nil && record.FilePath != "" {
-			// Attempt to delete the file, ignore errors if file doesn't exist
+			// 尝试删除文件，如果文件不存在则忽略错误
 			_ = os.Remove(record.FilePath)
 		}
 	}
 	return s.repo.Delete(id)
 }
 
-
-// DeleteMany removes multiple download records by IDs, optionally deleting files
-// Requirements: 5.3 - batch delete with option to keep or delete files
+// DeleteMany 按 ID 批量删除下载记录（可选删除文件）
+// Requirements: 5.3 - 批量删除（可选择保留或删除文件）
 func (s *DownloadRecordService) DeleteMany(ids []string, deleteFiles bool) (int64, error) {
 	if deleteFiles {
 		records, err := s.repo.GetByIDs(ids)
@@ -67,7 +66,7 @@ func (s *DownloadRecordService) DeleteMany(ids []string, deleteFiles bool) (int6
 		}
 		for _, record := range records {
 			if record.FilePath != "" {
-				// Attempt to delete the file, ignore errors if file doesn't exist
+				// 尝试删除文件，如果文件不存在则忽略错误
 				_ = os.Remove(record.FilePath)
 			}
 		}
@@ -75,8 +74,8 @@ func (s *DownloadRecordService) DeleteMany(ids []string, deleteFiles bool) (int6
 	return s.repo.DeleteMany(ids)
 }
 
-// Clear removes all download records, optionally deleting files
-// Requirements: 5.3 - clear with option to keep or delete files
+// Clear 清空所有下载记录（可选删除文件）
+// Requirements: 5.3 - 清空记录（可选择保留或删除文件）
 func (s *DownloadRecordService) Clear(deleteFiles bool) error {
 	if deleteFiles {
 		records, err := s.repo.GetAll()
@@ -85,7 +84,7 @@ func (s *DownloadRecordService) Clear(deleteFiles bool) error {
 		}
 		for _, record := range records {
 			if record.FilePath != "" {
-				// Attempt to delete the file, ignore errors if file doesn't exist
+				// 尝试删除文件，如果文件不存在则忽略错误
 				_ = os.Remove(record.FilePath)
 			}
 		}
@@ -93,14 +92,14 @@ func (s *DownloadRecordService) Clear(deleteFiles bool) error {
 	return s.repo.Clear()
 }
 
-// DeleteBefore removes all records before the specified date, optionally deleting files
+// DeleteBefore 删除指定日期前的所有记录（可选删除文件）
 func (s *DownloadRecordService) DeleteBefore(date time.Time, deleteFiles bool) (int64, error) {
 	if deleteFiles {
-		// Get records before date to delete their files
+		// 获取日期前的记录以删除其文件
 		params := &database.FilterParams{
 			PaginationParams: database.PaginationParams{
 				Page:     1,
-				PageSize: 10000, // Large enough to get all
+				PageSize: 10000, // 足够大以获取所有
 			},
 			EndDate: &date,
 		}
@@ -117,56 +116,56 @@ func (s *DownloadRecordService) DeleteBefore(date time.Time, deleteFiles bool) (
 	return s.repo.DeleteBefore(date)
 }
 
-// Count returns the total number of download records
+// Count 返回下载记录总数
 func (s *DownloadRecordService) Count() (int64, error) {
 	return s.repo.Count()
 }
 
-// CountByStatus returns the count of records with a specific status
+// CountByStatus 返回指定状态的记录数
 func (s *DownloadRecordService) CountByStatus(status string) (int64, error) {
 	return s.repo.CountByStatus(status)
 }
 
-// CountToday returns the count of records downloaded today
+// CountToday 返回今天下载的记录数
 func (s *DownloadRecordService) CountToday() (int64, error) {
 	return s.repo.CountToday()
 }
 
-// GetRecent retrieves the most recent download records
-// Requirements: 7.4 - recent 5 downloads on dashboard
+// GetRecent 获取最近的下载记录
+// Requirements: 7.4 - 仪表盘上的最近 5 次下载
 func (s *DownloadRecordService) GetRecent(limit int) ([]database.DownloadRecord, error) {
 	return s.repo.GetRecent(limit)
 }
 
-// GetAll retrieves all download records (for export)
-// Requirements: 4.2 - export download records
+// GetAll 获取所有下载记录（用于导出）
+// Requirements: 4.2 - 导出下载记录
 func (s *DownloadRecordService) GetAll() ([]database.DownloadRecord, error) {
 	return s.repo.GetAll()
 }
 
-// GetByIDs retrieves download records by IDs (for selective export)
-// Requirements: 9.4 - export selected records
+// GetByIDs 按 ID 获取下载记录（用于选择性导出）
+// Requirements: 9.4 - 导出选中记录
 func (s *DownloadRecordService) GetByIDs(ids []string) ([]database.DownloadRecord, error) {
 	return s.repo.GetByIDs(ids)
 }
 
-// GetChartData returns download counts for the last N days
-// Requirements: 7.2 - chart data for dashboard
+// GetChartData 返回过去 N 天的下载计数
+// Requirements: 7.2 - 仪表盘图表数据
 func (s *DownloadRecordService) GetChartData(days int) ([]string, []int64, error) {
 	return s.repo.GetChartData(days)
 }
 
-// GetTotalFileSize returns the total file size of all completed downloads
+// GetTotalFileSize 返回所有已完成下载的总文件大小
 func (s *DownloadRecordService) GetTotalFileSize() (int64, error) {
 	return s.repo.GetTotalFileSize()
 }
 
-// Create adds a new download record
+// Create 添加新的下载记录
 func (s *DownloadRecordService) Create(record *database.DownloadRecord) error {
 	return s.repo.Create(record)
 }
 
-// Update updates an existing download record
+// Update 更新现有的下载记录
 func (s *DownloadRecordService) Update(record *database.DownloadRecord) error {
 	return s.repo.Update(record)
 }
