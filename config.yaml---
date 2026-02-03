@@ -22,3 +22,9 @@ metrics_port: 9090
 # 数据压缩配置
 compression_enabled: true
 compression_threshold: 1024  # 1KB
+
+# 负载均衡配置
+load_balancer_strategy: "leastconn"  # roundrobin, leastconn, weighted, random
+
+# 负载均衡配置
+load_balancer_strategy: "leastconn"  # roundrobin, leastconn, weighted, random

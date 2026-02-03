@@ -98,6 +98,9 @@ func NewApp(cfgParam *config.Config) *App {
 	// 尽早初始化 WebSocket Hub，以确保它对 APIRouter 可用
 	app.WSHub = websocket.NewHub()
 
+	// 根据配置设置负载均衡选择器
+	app.configureLoadBalancer()
+
 	return app
 }
 
@@ -495,4 +498,36 @@ func (app *App) startMetricsServer() {
 	if err := http.ListenAndServe(metricsAddr, mux); err != nil {
 		utils.LogError("Prometheus 监控服务器启动失败: %v", err)
 	}
+}
+
+
+// configureLoadBalancer 配置负载均衡选择器
+func (app *App) configureLoadBalancer() {
+	strategy := app.Cfg.LoadBalancerStrategy
+	if strategy == "" {
+		strategy = "leastconn" // 默认使用最少连接
+	}
+
+	var selector websocket.ClientSelector
+
+	switch strategy {
+	case "roundrobin":
+		selector = websocket.NewRoundRobinSelector()
+		utils.Info("负载均衡策略: 轮询 (Round Robin)")
+	case "leastconn":
+		selector = websocket.NewLeastConnectionSelector()
+		utils.Info("负载均衡策略: 最少连接 (Least Connection)")
+	case "weighted":
+		// 加权选择器需要配置权重，这里使用默认权重
+		selector = websocket.NewWeightedSelector(nil)
+		utils.Info("负载均衡策略: 加权 (Weighted)")
+	case "random":
+		selector = websocket.NewRandomSelector()
+		utils.Info("负载均衡策略: 随机 (Random)")
+	default:
+		selector = websocket.NewLeastConnectionSelector()
+		utils.Warn("未知的负载均衡策略: %s, 使用默认策略: 最少连接", strategy)
+	}
+
+	app.WSHub.SetSelector(selector)
 }

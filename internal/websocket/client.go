@@ -11,12 +11,14 @@ import (
 
 // Client 表示一个 WebSocket 客户端连接
 type Client struct {
-	Conn     *websocket.Conn
-	send     chan []byte
-	hub      *Hub
-	mu       sync.Mutex
-	closed   bool
-	lastPing time.Time
+	ID             string          // 客户端 ID
+	Conn           *websocket.Conn
+	send           chan []byte
+	hub            *Hub
+	mu             sync.Mutex
+	closed         bool
+	lastPing       time.Time
+	activeRequests int32 // 活跃请求数（原子操作）
 }
 
 // NewClient 创建新的客户端
@@ -125,4 +127,25 @@ func (c *Client) Close() {
 		c.closed = true
 		close(c.send)
 	}
+}
+
+// GetActiveRequests 获取活跃请求数
+func (c *Client) GetActiveRequests() int {
+	return int(c.activeRequests)
+}
+
+// IncrementActiveRequests 增加活跃请求数
+func (c *Client) IncrementActiveRequests() {
+	c.mu.Lock()
+	c.activeRequests++
+	c.mu.Unlock()
+}
+
+// DecrementActiveRequests 减少活跃请求数
+func (c *Client) DecrementActiveRequests() {
+	c.mu.Lock()
+	if c.activeRequests > 0 {
+		c.activeRequests--
+	}
+	c.mu.Unlock()
 }

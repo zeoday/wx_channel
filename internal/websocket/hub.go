@@ -23,6 +23,9 @@ type Hub struct {
 	requests   map[string]chan APICallResponse
 	requestsMu sync.RWMutex
 	reqSeq     uint64
+
+	// 负载均衡选择器
+	selector ClientSelector
 }
 
 // NewHub 创建新的 Hub
@@ -32,6 +35,7 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		requests:   make(map[string]chan APICallResponse),
+		selector:   NewLeastConnectionSelector(), // 默认使用最少连接选择器
 	}
 }
 
@@ -73,11 +77,17 @@ func (h *Hub) RegisterClient(client *Client) {
 	h.register <- client
 }
 
-// GetClient 获取一个可用的客户端（优先返回最后注册的客户端）
+// GetClient 获取一个可用的客户端（使用负载均衡选择器）
 func (h *Hub) GetClient() (*Client, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	// 使用负载均衡选择器选择客户端
+	if h.selector != nil {
+		return h.selector.Select(h.clients)
+	}
+
+	// 如果没有选择器，使用默认逻辑（向后兼容）
 	// 优先使用最后注册的客户端
 	if h.lastClient != nil {
 		if _, ok := h.clients[h.lastClient]; ok {
@@ -93,6 +103,13 @@ func (h *Hub) GetClient() (*Client, error) {
 	return nil, errors.New("no available client")
 }
 
+// SetSelector 设置负载均衡选择器
+func (h *Hub) SetSelector(selector ClientSelector) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.selector = selector
+}
+
 // ClientCount 返回当前连接的客户端数量
 func (h *Hub) ClientCount() int {
 	h.mu.RLock()
@@ -106,6 +123,10 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 	if err != nil {
 		return nil, err
 	}
+
+	// 增加活跃请求计数
+	client.IncrementActiveRequests()
+	defer client.DecrementActiveRequests()
 
 	// 生成请求 ID
 	id := atomic.AddUint64(&h.reqSeq, 1)
