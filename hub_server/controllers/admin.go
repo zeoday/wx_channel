@@ -194,3 +194,78 @@ func AdminDeleteDevice(w http.ResponseWriter, r *http.Request) {
 		"message": "Device deleted successfully",
 	})
 }
+
+// GetAllTasks returns all tasks in the system (admin only)
+func GetAllTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, count, err := database.GetAllTasks()
+	if err != nil {
+		http.Error(w, "Failed to fetch tasks", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"list":  tasks,
+		"total": count,
+	})
+}
+
+// AdminDeleteTask permanently deletes a task (admin only)
+func AdminDeleteTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskIDStr := vars["id"]
+
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	// 删除任务
+	if err := database.DeleteTask(uint(taskID)); err != nil {
+		http.Error(w, "Failed to delete task", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Task deleted successfully",
+	})
+}
+
+// GetAllSubscriptions returns all subscriptions in the system (admin only)
+func GetAllSubscriptions(w http.ResponseWriter, r *http.Request) {
+	subscriptions, err := database.GetAllSubscriptions()
+	if err != nil {
+		http.Error(w, "Failed to fetch subscriptions", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subscriptions)
+}
+
+// AdminDeleteSubscription permanently deletes a subscription (admin only)
+func AdminDeleteSubscription(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	subIDStr := vars["id"]
+
+	subID, err := strconv.ParseUint(subIDStr, 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid subscription ID", http.StatusBadRequest)
+		return
+	}
+
+	// 删除订阅
+	if err := database.DeleteSubscription(uint(subID)); err != nil {
+		http.Error(w, "Failed to delete subscription", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Subscription deleted successfully",
+	})
+}

@@ -257,3 +257,72 @@ func GetAllDevices() ([]models.Node, error) {
 	err := DB.Order("last_seen desc").Find(&nodes).Error
 	return nodes, err
 }
+
+// GetAllTasks returns all tasks in the system
+func GetAllTasks() ([]models.Task, int64, error) {
+	var tasks []models.Task
+	var count int64
+
+	DB.Model(&models.Task{}).Count(&count)
+	
+	// Select only summary headers to reduce payload size
+	err := DB.Select("id", "type", "node_id", "user_id", "status", "error", "created_at", "updated_at").
+		Order("created_at desc").
+		Find(&tasks).Error
+	
+	return tasks, count, err
+}
+
+// DeleteTask permanently deletes a task from the database
+func DeleteTask(id uint) error {
+	return DB.Delete(&models.Task{}, id).Error
+}
+
+// GetAllSubscriptions returns all subscriptions in the system with video count
+func GetAllSubscriptions() ([]map[string]interface{}, error) {
+	var subscriptions []models.Subscription
+	err := DB.Order("created_at desc").Find(&subscriptions).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 为每个订阅添加视频数量
+	result := make([]map[string]interface{}, len(subscriptions))
+	for i, sub := range subscriptions {
+		var videoCount int64
+		DB.Model(&models.SubscribedVideo{}).Where("subscription_id = ?", sub.ID).Count(&videoCount)
+		
+		result[i] = map[string]interface{}{
+			"id":          sub.ID,
+			"user_id":     sub.UserID,
+			"finder_id":   sub.WxUsername,
+			"nickname":    sub.WxNickname,
+			"video_count": videoCount,
+			"created_at":  sub.CreatedAt,
+			"updated_at":  sub.UpdatedAt,
+		}
+	}
+	
+	return result, nil
+}
+
+// DeleteSubscription permanently deletes a subscription and its videos
+func DeleteSubscription(id uint) error {
+	// 开始事务
+	tx := DB.Begin()
+	
+	// 删除订阅的视频
+	if err := tx.Where("subscription_id = ?", id).Delete(&models.SubscribedVideo{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	
+	// 删除订阅
+	if err := tx.Delete(&models.Subscription{}, id).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	
+	// 提交事务
+	return tx.Commit().Error
+}
