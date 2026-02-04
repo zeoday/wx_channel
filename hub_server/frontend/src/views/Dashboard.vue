@@ -2,10 +2,6 @@
   <div class="w-full min-h-screen bg-bg px-6 py-8 md:px-12 md:py-10">
     <!-- Page Header -->
     <div class="max-w-7xl mx-auto mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
-      <div>
-        <h1 class="font-serif font-bold text-3xl md:text-5xl text-slate-900 mb-3 tracking-tight">在线终端概览</h1>
-        <p class="text-slate-500 text-lg font-medium max-w-xl">实时监控分布式节点状态，轻松管理带宽与任务。</p>
-      </div>
       <button 
         class="group px-6 py-3 rounded-full bg-primary text-white font-bold text-sm tracking-wide shadow-neu-btn flex items-center gap-2 transition-all hover:scale-105 hover:shadow-lg active:scale-95" 
         @click="clientStore.fetchClients"

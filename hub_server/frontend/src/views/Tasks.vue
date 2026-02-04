@@ -1,10 +1,6 @@
 <template>
   <div class="view-container">
     <header class="header">
-      <div>
-        <h1>任务审计日志</h1>
-        <p>所有远程操作的历史记录与执行结果</p>
-      </div>
       <button class="btn btn-outline btn-sm" @click="taskStore.fetchTasks(taskStore.page)">
         <RefreshCw class="icon-sm" :class="{ 'spin': taskStore.loading }" />
         刷新

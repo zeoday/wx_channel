@@ -1,7 +1,5 @@
 <template>
   <div class="max-w-6xl mx-auto space-y-8">
-    <h1 class="text-3xl font-serif font-bold text-slate-800">系统管理</h1>
-    
     <!-- Stats Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
        <!-- Users -->

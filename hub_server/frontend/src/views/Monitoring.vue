@@ -1,7 +1,6 @@
 <template>
   <div class="monitoring-container">
     <header class="header">
-      <h1 class="title">系统监控</h1>
       <div class="header-actions">
         <button @click="refreshData" class="btn-refresh" :disabled="loading">
           <span class="icon">🔄</span>

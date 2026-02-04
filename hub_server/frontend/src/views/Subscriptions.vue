@@ -1,7 +1,6 @@
 <template>
   <div class="min-h-screen bg-bg p-8 lg:p-12 font-sans text-text">
     <header class="flex justify-between items-center mb-12">
-      <h1 class="font-serif font-bold text-4xl text-text">我的订阅</h1>
       <button 
           @click="updateAllSubscriptions" 
           :disabled="updatingAll"

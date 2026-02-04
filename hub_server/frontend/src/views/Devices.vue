@@ -1,10 +1,5 @@
 <template>
   <div class="p-8">
-    <div class="mb-8">
-      <h1 class="text-3xl font-bold text-slate-800 mb-2">设备管理</h1>
-      <p class="text-slate-500">管理您绑定的所有设备</p>
-    </div>
-
     <!-- 添加新设备 -->
     <div class="bg-bg shadow-neu rounded-2xl p-6 mb-8">
       <div class="flex flex-col md:flex-row items-center justify-between gap-6">

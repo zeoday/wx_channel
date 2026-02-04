@@ -1,10 +1,6 @@
 <template>
   <div class="min-h-screen bg-bg p-8 lg:p-12 font-sans text-text">
     <header class="flex justify-between items-center mb-12">
-      <div>
-        <h1 class="font-serif font-bold text-3xl lg:text-4xl mb-2 text-text">远程穿透搜索</h1>
-        <p class="text-text-muted">通过选中终端执行实时视频号搜索与解析</p>
-      </div>
       <div v-if="client" class="px-4 py-2 rounded-xl bg-bg shadow-neu-sm border border-white/50 text-primary font-medium flex items-center gap-2">
         <span class="text-xs uppercase tracking-wider text-text-muted">Connected to</span>
         <strong>{{ client.hostname }}</strong>
