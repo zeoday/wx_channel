@@ -35,7 +35,7 @@
         </div>
         
         <div v-else class="flex flex-col gap-6">
-          <div v-for="video in videos" :key="video.id" class="p-4 rounded-3xl bg-bg shadow-neu border border-white/40 flex flex-col md:flex-row gap-6 transition-all hover:shadow-neu-sm group">
+          <div v-for="video in videos" :key="video.id" class="p-4 rounded-3xl bg-white shadow-card border border-slate-100 flex flex-col md:flex-row gap-6 transition-all hover:shadow-lg group">
             <div class="relative w-full md:w-48 aspect-video shrink-0 rounded-2xl overflow-hidden shadow-inner">
                <img :src="video.coverUrl" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                <div class="absolute bottom-2 right-2 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-md font-medium">{{ video.duration }}</div>
@@ -61,7 +61,7 @@
               </button>
           </div>
           
-          <div v-if="!loadingVideos && videos.length === 0" class="text-center p-12 text-text-muted bg-bg rounded-[2rem] shadow-neu-pressed">
+          <div v-if="!loadingVideos && videos.length === 0" class="text-center p-12 text-text-muted bg-white rounded-[2rem] shadow-card">
               暂无视频动态
           </div>
         </div>
@@ -69,7 +69,7 @@
     
     <!-- Video Player Modal -->
     <div v-if="playerUrl" class="fixed inset-0 z-50 flex justify-center items-center bg-black/60 backdrop-blur-md p-4" @click="closePlayer">
-      <div class="w-full max-w-5xl bg-bg rounded-3xl shadow-neu border border-white/50 p-4" @click.stop>
+      <div class="w-full max-w-5xl bg-white rounded-3xl shadow-card border border-slate-100 p-4" @click.stop>
         <div class="flex justify-between items-center mb-4 px-2">
           <h3 class="font-serif font-bold text-xl text-text">视频预览</h3>
           <button class="w-10 h-10 rounded-full bg-bg shadow-neu-btn flex items-center justify-center text-text hover:text-red-500 active:shadow-neu-btn-active transition-all" @click="closePlayer">×</button>

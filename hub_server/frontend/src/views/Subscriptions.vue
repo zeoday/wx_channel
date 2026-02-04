@@ -27,7 +27,7 @@
       <div 
           v-for="sub in subscriptions" 
           :key="sub.id"
-          class="bg-bg rounded-2xl p-6 shadow-neu border border-white/40 hover:-translate-y-1 hover:shadow-neu-sm transition-all">
+          class="bg-white rounded-2xl p-6 shadow-card border border-slate-100 hover:-translate-y-1 hover:shadow-lg transition-all">
         
         <!-- User Info -->
         <div class="flex items-center gap-4 mb-4">

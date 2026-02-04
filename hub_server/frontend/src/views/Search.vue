@@ -8,7 +8,7 @@
     </header>
 
     <!-- Client Selector if none selected -->
-    <div v-if="!client" class="p-12 text-center bg-bg rounded-[2rem] shadow-neu">
+    <div v-if="!client" class="p-12 text-center bg-white rounded-[2rem] shadow-card">
       <p class="text-text-muted mb-4">请先选择一个操作目标</p>
       <router-link to="/dashboard" class="inline-block px-6 py-3 rounded-full bg-bg shadow-neu-btn text-primary font-semibold hover:text-primary-dark transition-all active:shadow-neu-btn-active">
           前往在线终端
@@ -17,7 +17,7 @@
 
     <div v-else>
       <!-- Search Box & Type Selector -->
-      <div class="flex flex-col gap-4 mb-12 p-6 bg-bg rounded-[2rem] shadow-neu">
+      <div class="flex flex-col gap-4 mb-12 p-6 bg-white rounded-[2rem] shadow-card"
          <!-- Type Selector -->
         <div class="flex gap-4 px-2">
             <label class="flex items-center gap-2 cursor-pointer">
@@ -59,7 +59,7 @@
         <div 
           v-for="(item, idx) in results" 
           :key="idx" 
-          class="bg-bg rounded-2xl overflow-hidden shadow-neu border border-white/40 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-neu-sm hover:border-primary/30 group relative"
+          class="bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg hover:border-primary/30 group relative"
           @click="openDetail(item)"
         >
           <!-- User Head (Type 1) -->
@@ -152,7 +152,7 @@
     
     <!-- Video Player Modal -->
     <div v-if="playerUrl" class="fixed inset-0 z-50 flex justify-center items-center bg-black/80 backdrop-blur-md p-4" @click="closePlayer">
-      <div class="w-full max-w-5xl bg-bg rounded-3xl shadow-neu border border-white/50 p-4" @click.stop>
+      <div class="w-full max-w-5xl bg-white rounded-3xl shadow-card border border-slate-100 p-4" @click.stop>
         <div class="flex justify-between items-center mb-4 px-2">
           <h3 class="font-serif font-bold text-xl text-text">{{ playerTitle }}</h3>
           <button class="w-10 h-10 rounded-full bg-bg shadow-neu-btn flex items-center justify-center text-text hover:text-red-500 active:shadow-neu-btn-active transition-all" @click="closePlayer">×</button>

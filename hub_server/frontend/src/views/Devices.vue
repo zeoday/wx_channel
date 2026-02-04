@@ -93,7 +93,7 @@
         <div 
           v-for="device in devices" 
           :key="device.id"
-          class="bg-bg shadow-neu-sm rounded-xl p-6 hover:shadow-neu transition-all"
+          class="bg-white shadow-card rounded-xl p-6 hover:shadow-lg transition-all"
         >
           <div class="flex items-start justify-between">
             <div class="flex items-start gap-4 flex-1">
