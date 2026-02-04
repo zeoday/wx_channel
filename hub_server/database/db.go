@@ -64,15 +64,30 @@ func UpsertNode(node *models.Node) error {
 	// First check if node exists
 	var existing models.Node
 	if err := DB.First(&existing, "id = ?", node.ID).Error; err != nil {
-		// New node
+		// New node - set CreatedAt if not already set
+		if node.CreatedAt.IsZero() {
+			node.CreatedAt = time.Now()
+		}
 		return DB.Create(node).Error
 	}
 
-	// Update existing fields, but preserve created_at and potentially UserID if not provided
-	node.UserID = existing.UserID
-	node.BindStatus = existing.BindStatus
+	// Update existing fields, but preserve created_at, UserID and BindStatus
+	updates := map[string]interface{}{
+		"hostname":  node.Hostname,
+		"version":   node.Version,
+		"ip":        node.IP,
+		"status":    node.Status,
+		"last_seen": node.LastSeen,
+		"updated_at": time.Now(),
+	}
+	
+	// Only update UserID and BindStatus if they are set in the new node
+	if node.UserID != 0 {
+		updates["user_id"] = node.UserID
+		updates["bind_status"] = node.BindStatus
+	}
 
-	return DB.Save(node).Error
+	return DB.Model(&models.Node{}).Where("id = ?", node.ID).Updates(updates).Error
 }
 
 func UpdateNodeStatus(id string, status string) error {
