@@ -191,36 +191,35 @@ const playVideo = async (video) => {
     const profileData = await profileRes.json()
     console.log('[PlayVideo] Profile response:', profileData)
     
-    // Extract actual video object from response - handle ResponsePayload.Data
+    // ResponsePayload structure: { request_id, success, data (json.RawMessage), error }
+    // The 'data' field is a JSON string that needs to be parsed
     let actualVideo = {}
     
-    // ResponsePayload has Data field which is json.RawMessage, need to parse it
-    if (profileData.Data) {
+    if (!profileData.success) {
+      throw new Error(profileData.error || '获取视频信息失败')
+    }
+    
+    // Parse the data field (it's a JSON string from Go's json.RawMessage)
+    let parsedData = profileData.data
+    if (typeof parsedData === 'string') {
       try {
-        const parsedData = typeof profileData.Data === 'string' 
-          ? JSON.parse(profileData.Data) 
-          : profileData.Data
-        console.log('[PlayVideo] Parsed Data:', parsedData)
-        
-        if (parsedData.data && parsedData.data.object) {
-          actualVideo = parsedData.data.object
-        } else if (parsedData.object) {
-          actualVideo = parsedData.object
-        }
+        parsedData = JSON.parse(parsedData)
+        console.log('[PlayVideo] Parsed data string:', parsedData)
       } catch (e) {
-        console.error('[PlayVideo] Failed to parse Data:', e)
+        console.error('[PlayVideo] Failed to parse data string:', e)
+        throw new Error('解析响应数据失败')
       }
     }
     
-    // Fallback to old logic if above didn't work
-    if (!actualVideo.objectDesc && !actualVideo.desc) {
-      if (profileData.data && profileData.data.object) {
-        actualVideo = profileData.data.object
-      } else if (profileData.data && profileData.data.data && profileData.data.data.object) {
-        actualVideo = profileData.data.data.object
-      } else {
-        actualVideo = profileData.data || {}
-      }
+    // Now extract the video object from the parsed data
+    // Structure: { data: { object: {...} } } or { object: {...} }
+    if (parsedData.data && parsedData.data.object) {
+      actualVideo = parsedData.data.object
+    } else if (parsedData.object) {
+      actualVideo = parsedData.object
+    } else {
+      console.error('[PlayVideo] Unexpected data structure:', parsedData)
+      throw new Error('无法找到视频对象')
     }
     
     console.log('[PlayVideo] Actual video:', actualVideo)
