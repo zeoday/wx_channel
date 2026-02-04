@@ -13,7 +13,7 @@
              <div v-if="bindToken" class="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl">
                  <span class="font-mono text-2xl font-bold text-primary tracking-widest">{{ bindToken }}</span>
                  <button @click="copyToken" class="p-2 rounded-lg hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors" title="复制">
-                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                     <component :is="Copy" class="w-5 h-5" />
                  </button>
              </div>
              <button 
@@ -45,7 +45,7 @@
           <div class="flex justify-between items-start mb-4">
               <div class="flex items-center gap-3">
                   <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                      <component :is="Monitor" class="w-6 h-6" />
                   </div>
                   <div>
                       <h3 class="font-bold text-slate-800 text-sm truncate max-w-[120px]" :title="device.hostname">{{ device.hostname || 'Unknown Host' }}</h3>
@@ -76,6 +76,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { Copy, Monitor } from 'lucide-vue-next'
 
 const bindToken = ref('')
 const devices = ref([])
