@@ -99,6 +99,12 @@ func AuthMiddleware(secretToken string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// 公共端点放行：用于服务探活和控制台令牌验证
+			if isPublicAPIPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// 允许 CORS 预检请求直接通过
 			if r.Method == http.MethodOptions {
 				next.ServeHTTP(w, r)
@@ -123,6 +129,15 @@ func AuthMiddleware(secretToken string) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+func isPublicAPIPath(path string) bool {
+	switch path {
+	case "/api/health", "/api/console/verify-token", "/api/system/health", "/api/v1/system/health":
+		return true
+	default:
+		return false
 	}
 }
 

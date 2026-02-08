@@ -134,3 +134,48 @@ func TestCertificateAPI(t *testing.T) {
 		t.Errorf("Failed to parse response JSON: %v", err)
 	}
 }
+
+func TestAuthMiddleware_PublicPathsBypass(t *testing.T) {
+	handler := AuthMiddleware("secret-token")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	publicPaths := []string{
+		"/api/health",
+		"/api/console/verify-token",
+		"/api/system/health",
+		"/api/v1/system/health",
+	}
+
+	for _, p := range publicPaths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected public path %s to bypass auth, got %d", p, w.Code)
+		}
+	}
+}
+
+func TestAuthMiddleware_ProtectedPathRequiresToken(t *testing.T) {
+	handler := AuthMiddleware("secret-token")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// 无 token
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", w.Code)
+	}
+
+	// 正确 token
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	req.Header.Set("X-Local-Auth", "secret-token")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with token, got %d", w.Code)
+	}
+}
