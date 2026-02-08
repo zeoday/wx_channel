@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1441,6 +1444,47 @@ func isPathWithinBase(baseDir, targetPath string) bool {
 	return !filepath.IsAbs(rel)
 }
 
+// validateVideoPlayTargetURL validates upstream video URL and blocks local/private targets.
+func validateVideoPlayTargetURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid target URL")
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("only http/https URLs are allowed")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("invalid target URL")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("URL userinfo is not allowed")
+	}
+
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+		return "", fmt.Errorf("local addresses are not allowed")
+	}
+
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+			return "", fmt.Errorf("local/private addresses are not allowed")
+		}
+	}
+
+	if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
+		for _, ip := range ips {
+			if addr, ok := netip.AddrFromSlice(ip); ok {
+				if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+					return "", fmt.Errorf("local/private addresses are not allowed")
+				}
+			}
+		}
+	}
+
+	return u.String(), nil
+}
+
 // HandleVideoPlay 处理 GET /api/video/play - 远程视频流式播放（支持加密解密）
 // 参数:
 //   - url: 视频源 URL（必需）
@@ -1478,8 +1522,14 @@ func (h *ConsoleAPIHandler) HandleVideoPlay(w http.ResponseWriter, r *http.Reque
 		needsDecryption = true
 	}
 
+	validatedURL, err := validateVideoPlayTargetURL(targetURL)
+	if err != nil {
+		h.sendError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// 创建上游请求
-	upstreamReq, err := http.NewRequest(r.Method, targetURL, nil)
+	upstreamReq, err := http.NewRequest(r.Method, validatedURL, nil)
 	if err != nil {
 		h.sendError(w, r, http.StatusBadRequest, "invalid target URL")
 		return
