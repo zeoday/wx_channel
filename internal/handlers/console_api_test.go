@@ -205,3 +205,21 @@ func TestIsAllowedVideoExtension(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJSON_BodyTooLarge(t *testing.T) {
+	handler := &ConsoleAPIHandler{}
+	var payload struct {
+		Data string `json:"data"`
+	}
+
+	tooLarge := `{"data":"` + strings.Repeat("a", maxJSONBodyBytes) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(tooLarge))
+
+	err := handler.parseJSON(req, &payload)
+	if err == nil {
+		t.Fatalf("expected error for oversized body, got nil")
+	}
+	if !strings.Contains(err.Error(), "request body too large") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

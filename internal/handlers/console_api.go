@@ -35,6 +35,8 @@ type ConsoleAPIHandler struct {
 	wsHub           *websocket.Hub
 }
 
+const maxJSONBodyBytes = 8 << 20 // 8MB
+
 // NewConsoleAPIHandler 创建一个新的 ConsoleAPIHandler
 func NewConsoleAPIHandler(cfg *config.Config, wsHub *websocket.Hub) *ConsoleAPIHandler {
 	return &ConsoleAPIHandler{
@@ -130,11 +132,14 @@ func (h *ConsoleAPIHandler) HandleCORS(w http.ResponseWriter, r *http.Request) b
 
 // parseJSON 解析 JSON 请求体
 func (h *ConsoleAPIHandler) parseJSON(r *http.Request, v interface{}) error {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes+1))
 	if err != nil {
 		return err
 	}
 	defer r.Body.Close()
+	if int64(len(body)) > maxJSONBodyBytes {
+		return fmt.Errorf("request body too large")
+	}
 	return json.Unmarshal(body, v)
 }
 
