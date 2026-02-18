@@ -72,12 +72,14 @@ func (c *Client) ReadPump() {
 	go c.pingLoop()
 
 	for {
+
 		// 使用 context 控制读取超时
-		ctx, cancel := context.WithTimeout(c.ctx, 90*time.Second)
+		ctx, cancel := context.WithTimeout(c.ctx, 180*time.Second)
 		messageType, message, err := c.Conn.Read(ctx)
 		cancel()
 
 		if err != nil {
+
 			// 检查是否是正常关闭
 			status := websocket.CloseStatus(err)
 			if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
@@ -177,9 +179,8 @@ func (c *Client) Close() {
 	}
 }
 
-// pingLoop 定期发送 ping 保持连接活跃
 func (c *Client) pingLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(50 * time.Second)
 	defer ticker.Stop()
 
 	for {

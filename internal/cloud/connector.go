@@ -209,12 +209,16 @@ func (c *Connector) handleConnection() {
 		}
 	}
 
+	// 创建连接级上下文
+	ctx, cancel := context.WithCancel(c.ctx)
+	defer cancel()
+
 	// 启动心跳
-	go c.heartbeatLoop()
+	go c.heartbeatLoop(ctx)
 
 	// 启动监控数据推送（如果启用了监控）
 	if c.cfg.MetricsEnabled {
-		go c.metricsLoop()
+		go c.metricsLoop(ctx)
 	}
 
 	// 监听消息
@@ -262,7 +266,7 @@ func (c *Connector) handleConnection() {
 		}(msg)
 	}
 }
-func (c *Connector) heartbeatLoop() {
+func (c *Connector) heartbeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second) // 优化：缩短心跳间隔到 10 秒
 	defer ticker.Stop()
 
@@ -276,7 +280,7 @@ func (c *Connector) heartbeatLoop() {
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			if err := c.sendHeartbeat(); err != nil {
@@ -595,13 +599,13 @@ func (c *Connector) sendError(reqID string, errMsg string) {
 }
 
 // metricsLoop 定期推送监控数据到 Hub
-func (c *Connector) metricsLoop() {
+func (c *Connector) metricsLoop(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second) // 每 15 秒推送一次
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			if err := c.pushMetrics(); err != nil {
