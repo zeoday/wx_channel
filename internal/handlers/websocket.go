@@ -447,7 +447,8 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// 生成客户端 ID
 	clientID := generateClientID()
-	ctx, cancel := context.WithCancel(r.Context())
+	// 使用 Background context 而不是 r.Context()，避免 HTTP 请求结束时取消 WebSocket
+	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &WebSocketClient{
 		hub:    h.hub,
